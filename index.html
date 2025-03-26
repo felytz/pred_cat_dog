@@ -85,7 +85,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
 
   <script>
-    // App State
+    // App State - MODIFIED: Set default facingMode to 'environment' (rear camera)
     const state = {
       currentModel: 'dense',
       models: {
@@ -93,7 +93,7 @@
         cnn: null
       },
       stream: null,
-      facingMode: 'user',
+      facingMode: 'environment',  // Changed from 'user' to 'environment'
       isModelLoading: false
     };
 
@@ -117,23 +117,58 @@
       setupEventListeners();
     });
 
-    // Model Loading
-    async function loadAllModels() {
+    // File Accessibility Verification
+    async function checkModelFiles() {
       try {
-        elements.result.textContent = "Cargando modelos...";
+        const response1 = await fetch('tfjs_dense_model/model.json');
+        if (!response1.ok) throw new Error('Dense model not found');
         
-        state.models.dense = await tf.loadGraphModel('tfjs_dense_model/model.json');
-        state.models.cnn = await tf.loadGraphModel('tfjs_cnn_model/model.json');
+        const response2 = await fetch('tfjs_cnn_model/model.json');
+        if (!response2.ok) throw new Error('CNN model not found');
         
-        elements.result.textContent = "Listo!";
-        console.log("Todos los modelos cargados");
+        return true;
       } catch (error) {
-        console.error("Error loading models:", error);
-        elements.result.textContent = "Error cargando modelos";
+        console.error('File check failed:', error);
+        return false;
       }
     }
 
-    // Camera Setup
+    // Usage:
+    const filesExist = await checkModelFiles();
+    if (!filesExist) {
+      elements.result.textContent = "Model files missing!";
+      return;
+    }
+    
+    // Model Loading
+    async function loadAllModels() {
+      elements.result.textContent = "Cargando modelos...";
+      
+      try {
+        console.log("Attempting to load Dense model...");
+        state.models.dense = await tf.loadGraphModel('tfjs_dense_model/model.json');
+        console.log("Dense model loaded successfully");
+        
+        console.log("Attempting to load CNN model...");
+        state.models.cnn = await tf.loadGraphModel('tfjs_cnn_model/model.json');
+        console.log("CNN model loaded successfully");
+        
+        elements.result.textContent = "Modelos cargados! ✅";
+      } catch (error) {
+        console.error("Full error details:", error);
+        elements.result.textContent = `Error: ${error.message.split('\n')[0]}`;
+        
+        // Check if partial loading occurred
+        if (state.models.dense && !state.models.cnn) {
+          console.warn("Only Dense model loaded");
+        }
+        else if (!state.models.dense && state.models.cnn) {
+          console.warn("Only CNN model loaded");
+        }
+      }
+    }
+
+    // Camera Setup - MODIFIED: Added fallback to front camera
     async function setupCamera() {
       if (state.stream) {
         state.stream.getTracks().forEach(track => track.stop());
@@ -159,7 +194,15 @@
         };
       } catch (err) {
         console.error("Camera error:", err);
-        elements.result.textContent = "Error de cámara";
+        // If rear camera fails, try falling back to front camera
+        if (state.facingMode === 'environment') {
+          console.log("Rear camera not available, trying front camera...");
+          state.facingMode = 'user';
+          elements.facingMode.textContent = 'Frontal';
+          await setupCamera(); // Retry with front camera
+        } else {
+          elements.result.textContent = "Error de cámara";
+        }
       }
     }
 
