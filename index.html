@@ -1,58 +1,249 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-    <title>Cat/Dog Classifier</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Perros y Gatos</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    #resultado {
+      font-weight: bold;
+      font-size: 6rem;
+      text-align: center;
+      min-height: 8rem;
+    }
+    #model-info {
+      font-size: 1rem;
+      background: #f8f9fa;
+      padding: 10px;
+      border-radius: 5px;
+      margin: 10px 0;
+    }
+    #confidence-bar {
+      height: 20px;
+      background: #e9ecef;
+      margin: 10px 0;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    #confidence-progress {
+      height: 100%;
+      background: linear-gradient(90deg, #ff6b6b, #4ecdc4);
+      width: 50%;
+      transition: width 0.3s;
+    }
+    .model-active {
+      box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.5);
+    }
+  </style>
 </head>
 <body>
-    <h1>Cat/Dog Classifier</h1>
-    <video id="webcam" width="224" height="224" autoplay></video>
-    <button id="toggleModel">Switch Model (Current: <span id="modelName">Dense</span>)</button>
-    <p id="prediction">Prediction: None</p>
+  <main>
+    <div class="px-4 py-2 my-2 text-center border-bottom">
+      <h1 class="display-5 fw-bold">Perros y Gatos</h1>
+      <div class="col-lg-6 mx-auto">
+        <p class="lead mb-0">Clasificación en tiempo real con TensorFlow.js</p>
+      </div>
+    </div>
 
-    <script>
-        let currentModel = 'dense_model'; // Default model
-        let dense_model, cnn_model;
-        const webcam = document.getElementById('webcam');
-        const toggleBtn = document.getElementById('toggleModel');
-        const modelNameSpan = document.getElementById('modelName');
-        const predictionText = document.getElementById('prediction');
+    <div class="container mt-4">
+      <div class="row justify-content-center">
+        <div class="col-12 col-md-6 text-center">
+          <!-- Camera Feed -->
+          <div class="position-relative mb-3">
+            <canvas id="canvas" width="400" height="400" class="img-fluid border rounded"></canvas>
+            <div class="position-absolute top-0 start-0 m-2">
+              <span id="facing-mode" class="badge bg-secondary">Frontal</span>
+            </div>
+          </div>
+          
+          <!-- Model Selection -->
+          <div class="d-flex justify-content-center gap-2 mb-3">
+            <button id="btn-dense" class="btn btn-primary model-btn active">Modelo Dense</button>
+            <button id="btn-cnn" class="btn btn-outline-primary model-btn">Modelo CNN</button>
+          </div>
+          
+          <!-- Prediction Output -->
+          <div id="model-info" class="text-start">
+            <div>Modelo cargado: <span id="model-name">Dense</span></div>
+            <div>Precisión: <span id="confidence-value">0%</span></div>
+            <div id="confidence-bar"><div id="confidence-progress"></div></div>
+          </div>
+          
+          <div id="resultado" class="my-3"></div>
+          
+          <!-- Controls -->
+          <div class="d-flex justify-content-center gap-2">
+            <button id="switch-camera" class="btn btn-secondary">Cambiar Cámara</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
 
-        // Load models
-        async function loadModels() {
-            dense_model = await tf.loadLayersModel('/tfjs_dense_model/model.json');
-            cnn_model = await tf.loadLayersModel('/tfjs_cnn_model/model.json');
-            console.log("Models loaded!");
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+
+  <script>
+    // App State
+    const state = {
+      currentModel: 'dense',
+      models: {
+        dense: null,
+        cnn: null
+      },
+      stream: null,
+      facingMode: 'user',
+      isModelLoading: false
+    };
+
+    // DOM Elements
+    const elements = {
+      canvas: document.getElementById('canvas'),
+      result: document.getElementById('resultado'),
+      modelName: document.getElementById('model-name'),
+      confidenceValue: document.getElementById('confidence-value'),
+      confidenceBar: document.getElementById('confidence-progress'),
+      facingMode: document.getElementById('facing-mode'),
+      btnRR: document.getElementById('btn-dense'),
+      btnCNN: document.getElementById('btn-cnn'),
+      switchCamera: document.getElementById('switch-camera')
+    };
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', async () => {
+      await loadAllModels();
+      setupCamera();
+      setupEventListeners();
+    });
+
+    // Model Loading
+    async function loadAllModels() {
+      try {
+        elements.result.textContent = "Cargando modelos...";
+        
+        state.models.dense = await tf.loadGraphModel('tfjs_dense_model/model.json');
+        state.models.cnn = await tf.loadGraphModel('tfjs_cnn_model/model.json');
+        
+        elements.result.textContent = "Listo!";
+        console.log("Todos los modelos cargados");
+      } catch (error) {
+        console.error("Error loading models:", error);
+        elements.result.textContent = "Error cargando modelos";
+      }
+    }
+
+    // Camera Setup
+    async function setupCamera() {
+      if (state.stream) {
+        state.stream.getTracks().forEach(track => track.stop());
+      }
+
+      const constraints = {
+        video: {
+          width: 400,
+          height: 400,
+          facingMode: state.facingMode
         }
+      };
 
-        // Toggle between models
-        toggleBtn.addEventListener('click', () => {
-            currentModel = currentModel === 'dense_model' ? 'cnn_model' : 'dense_model';
-            modelNameSpan.textContent = currentModel === 'dense_model' ? 'Dense' : 'CNN';
-        });
+      try {
+        state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+        const video = document.createElement('video');
+        video.srcObject = state.stream;
+        video.autoplay = true;
+        
+        video.onloadedmetadata = () => {
+          processVideoFeed(video);
+          predict();
+        };
+      } catch (err) {
+        console.error("Camera error:", err);
+        elements.result.textContent = "Error de cámara";
+      }
+    }
 
-        // Predict from webcam
-        async function predict() {
-            const img = tf.browser.fromPixels(webcam)
-                .resizeNearestNeighbor([224, 224])
-                .toFloat()
-                .expandDims();
+    // Video Processing
+    function processVideoFeed(video) {
+      const ctx = elements.canvas.getContext('2d');
+      
+      function draw() {
+        ctx.drawImage(video, 0, 0, elements.canvas.width, elements.canvas.height);
+        requestAnimationFrame(draw);
+      }
+      
+      video.play();
+      draw();
+    }
 
-            const model = currentModel === 'dense_model' ? dense_model : cnn_model;
-            const prediction = await model.predict(img).data();
-            const isDog = prediction[0] > 0.5;
-            predictionText.textContent = `Prediction: ${isDog ? 'Dog 🐶' : 'Cat 🐱'}`;
-            requestAnimationFrame(predict);
-        }
+    // Prediction
+    async function predict() {
+      if (!state.models[state.currentModel]) return;
 
-        // Initialize webcam
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
-                webcam.srcObject = stream;
-                webcam.onloadedmetadata = () => {
-                    loadModels().then(predict);
-                };
-            });
-    </script>
+      // Preprocess image
+      const tensor = tf.browser.fromPixels(elements.canvas)
+        .resizeNearestNeighbor([150, 150])
+        .toFloat();
+      
+      // Model-specific preprocessing
+      let inputTensor;
+      if (state.currentModel === 'dense') {
+        // Dense model expects grayscale
+        inputTensor = tensor.mean(2).expandDims(0).expandDims(-1);
+      } else {
+        // CNN model expects RGB
+        inputTensor = tensor.div(255.0).expandDims(0);
+      }
+
+      // Make prediction
+      const prediction = await state.models[state.currentModel].predict(inputTensor).data();
+      const confidence = prediction[0] * 100;
+      const isDog = confidence > 50;
+      
+      // Update UI
+      elements.result.textContent = isDog ? "🐶 Perro" : "🐱 Gato";
+      elements.confidenceValue.textContent = `${confidence.toFixed(1)}%`;
+      elements.confidenceBar.style.width = `${confidence}%`;
+      elements.confidenceBar.style.background = isDog ? 
+        `linear-gradient(90deg, #4ecdc4, #4ecdc4)` : 
+        `linear-gradient(90deg, #ff6b6b, #ff6b6b)`;
+
+      // Clean up
+      tensor.dispose();
+      inputTensor.dispose();
+      
+      // Repeat
+      setTimeout(predict, 200);
+    }
+
+    // Event Listeners
+    function setupEventListeners() {
+      // Model switching
+      elements.btnRR.addEventListener('click', () => switchModel('dense'));
+      elements.btnCNN.addEventListener('click', () => switchModel('cnn'));
+      
+      // Camera switching
+      elements.switchCamera.addEventListener('click', switchCamera);
+    }
+
+    function switchModel(newModel) {
+      if (state.currentModel === newModel || state.isModelLoading) return;
+      
+      state.currentModel = newModel;
+      
+      // Update UI
+      elements.btnRR.classList.toggle('active', newModel === 'dense');
+      elements.btnCNN.classList.toggle('active', newModel === 'cnn');
+      elements.modelName.textContent = newModel.toUpperCase();
+      
+      console.log(`Switched to ${newModel.toUpperCase()} model`);
+    }
+
+    function switchCamera() {
+      state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
+      elements.facingMode.textContent = state.facingMode === 'user' ? 'Frontal' : 'Trasera';
+      setupCamera();
+    }
+  </script>
 </body>
 </html>
