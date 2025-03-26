@@ -153,11 +153,11 @@
       }
 
       // Load models with explicit input shapes
-      state.models.dense = await tf.loadLayersModel('public/tfjs_dense_model/model.json', {
+      state.models.dense = await tf.loadLayersModel('tfjs_dense_model/model.json', {
         strict: false  // Ignore missing batchInputShape
       });
       
-      state.models.cnn = await tf.loadLayersModel('public/tfjs_cnn_model/model.json', {
+      state.models.cnn = await tf.loadLayersModel('tfjs_cnn_model/model.json', {
         strict: false  // Ignore missing batchInputShape
       });
 
