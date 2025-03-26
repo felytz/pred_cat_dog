@@ -35,6 +35,9 @@
     .model-active {
       box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.5);
     }
+    #camera-select {
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
@@ -53,9 +56,14 @@
           <div class="position-relative mb-3">
             <canvas id="canvas" width="400" height="400" class="img-fluid border rounded"></canvas>
             <div class="position-absolute top-0 start-0 m-2">
-              <span id="facing-mode" class="badge bg-secondary">Frontal</span>
+              <span id="facing-mode" class="badge bg-secondary">Cámara</span>
             </div>
           </div>
+          
+          <!-- Camera Selection (for computers) -->
+          <select id="camera-select" class="form-select d-none">
+            <option value="">Seleccionar cámara...</option>
+          </select>
           
           <!-- Model Selection -->
           <div class="d-flex justify-content-center gap-2 mb-3">
@@ -85,7 +93,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
 
   <script>
-    // App State - MODIFIED: Set default facingMode to 'environment' (rear camera)
+    // App State
     const state = {
       currentModel: 'dense',
       models: {
@@ -93,8 +101,10 @@
         cnn: null
       },
       stream: null,
-      facingMode: 'environment',  // Changed from 'user' to 'environment'
-      isModelLoading: false
+      facingMode: 'environment',
+      isModelLoading: false,
+      devices: [],
+      currentDeviceId: null
     };
 
     // DOM Elements
@@ -107,73 +117,60 @@
       facingMode: document.getElementById('facing-mode'),
       btnRR: document.getElementById('btn-dense'),
       btnCNN: document.getElementById('btn-cnn'),
-      switchCamera: document.getElementById('switch-camera')
+      switchCamera: document.getElementById('switch-camera'),
+      cameraSelect: document.getElementById('camera-select')
     };
 
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
       await loadAllModels();
-      setupCamera();
+      await setupCamera();
       setupEventListeners();
     });
 
-    // File Accessibility Verification
-    async function checkModelFiles() {
-      try {
-        const response1 = await fetch('tfjs_dense_model/model.json');
-        if (!response1.ok) throw new Error('Dense model not found');
-        
-        const response2 = await fetch('tfjs_cnn_model/model.json');
-        if (!response2.ok) throw new Error('CNN model not found');
-        
-        return true;
-      } catch (error) {
-        console.error('File check failed:', error);
-        return false;
-      }
-    }
-
-    // Usage:
-    const filesExist = await checkModelFiles();
-    if (!filesExist) {
-      elements.result.textContent = "Model files missing!";
-      return;
-    }
-    
     // Model Loading
     async function loadAllModels() {
       elements.result.textContent = "Cargando modelos...";
       
       try {
-        console.log("Attempting to load Dense model...");
         state.models.dense = await tf.loadGraphModel('tfjs_dense_model/model.json');
-        console.log("Dense model loaded successfully");
-        
-        console.log("Attempting to load CNN model...");
         state.models.cnn = await tf.loadGraphModel('tfjs_cnn_model/model.json');
-        console.log("CNN model loaded successfully");
-        
         elements.result.textContent = "Modelos cargados! ✅";
       } catch (error) {
-        console.error("Full error details:", error);
+        console.error("Error loading models:", error);
         elements.result.textContent = `Error: ${error.message.split('\n')[0]}`;
-        
-        // Check if partial loading occurred
-        if (state.models.dense && !state.models.cnn) {
-          console.warn("Only Dense model loaded");
-        }
-        else if (!state.models.dense && state.models.cnn) {
-          console.warn("Only CNN model loaded");
-        }
       }
     }
 
-    // Camera Setup - MODIFIED: Added fallback to front camera
+    // Camera Setup - Enhanced for all devices
     async function setupCamera() {
+      // Stop any existing stream
       if (state.stream) {
         state.stream.getTracks().forEach(track => track.stop());
       }
 
+      // Get available devices
+      await getCameraDevices();
+
+      // For mobile devices
+      if (isMobile()) {
+        await setupMobileCamera();
+      } 
+      // For computers
+      else {
+        await setupComputerCamera();
+      }
+    }
+
+    // Detect mobile devices
+    function isMobile() {
+      return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    }
+
+    // Setup for mobile devices
+    async function setupMobileCamera() {
+      elements.cameraSelect.classList.add('d-none');
+      
       const constraints = {
         video: {
           width: 400,
@@ -184,26 +181,90 @@
 
       try {
         state.stream = await navigator.mediaDevices.getUserMedia(constraints);
-        const video = document.createElement('video');
-        video.srcObject = state.stream;
-        video.autoplay = true;
-        
-        video.onloadedmetadata = () => {
-          processVideoFeed(video);
-          predict();
-        };
+        startVideoStream();
+        elements.facingMode.textContent = state.facingMode === 'user' ? 'Frontal' : 'Trasera';
       } catch (err) {
-        console.error("Camera error:", err);
-        // If rear camera fails, try falling back to front camera
+        console.error("Mobile camera error:", err);
+        // Fallback to front camera if rear is unavailable
         if (state.facingMode === 'environment') {
-          console.log("Rear camera not available, trying front camera...");
           state.facingMode = 'user';
-          elements.facingMode.textContent = 'Frontal';
-          await setupCamera(); // Retry with front camera
+          await setupMobileCamera();
         } else {
           elements.result.textContent = "Error de cámara";
         }
       }
+    }
+
+    // Setup for computers
+    async function setupComputerCamera() {
+      elements.cameraSelect.classList.remove('d-none');
+      
+      // Populate camera selection dropdown
+      populateCameraSelect();
+      
+      // Use first available camera by default
+      if (state.devices.length > 0 && !state.currentDeviceId) {
+        state.currentDeviceId = state.devices[0].deviceId;
+      }
+
+      const constraints = {
+        video: {
+          width: 400,
+          height: 400,
+          deviceId: state.currentDeviceId ? { exact: state.currentDeviceId } : undefined
+        }
+      };
+
+      try {
+        state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+        startVideoStream();
+        elements.facingMode.textContent = "Webcam";
+      } catch (err) {
+        console.error("Computer camera error:", err);
+        elements.result.textContent = "Error de cámara";
+      }
+    }
+
+    // Get available camera devices
+    async function getCameraDevices() {
+      if (!navigator.mediaDevices.enumerateDevices) {
+        console.log("enumerateDevices not supported");
+        return;
+      }
+
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        state.devices = devices.filter(device => device.kind === 'videoinput');
+      } catch (err) {
+        console.error("Error enumerating devices:", err);
+      }
+    }
+
+    // Populate camera select dropdown
+    function populateCameraSelect() {
+      elements.cameraSelect.innerHTML = '<option value="">Seleccionar cámara...</option>';
+      
+      state.devices.forEach(device => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.text = device.label || `Cámara ${elements.cameraSelect.length}`;
+        if (device.deviceId === state.currentDeviceId) {
+          option.selected = true;
+        }
+        elements.cameraSelect.appendChild(option);
+      });
+    }
+
+    // Start video stream
+    function startVideoStream() {
+      const video = document.createElement('video');
+      video.srcObject = state.stream;
+      video.autoplay = true;
+      
+      video.onloadedmetadata = () => {
+        processVideoFeed(video);
+        predict();
+      };
     }
 
     // Video Processing
@@ -267,6 +328,12 @@
       
       // Camera switching
       elements.switchCamera.addEventListener('click', switchCamera);
+      
+      // Camera selection (for computers)
+      elements.cameraSelect.addEventListener('change', async (e) => {
+        state.currentDeviceId = e.target.value;
+        await setupCamera();
+      });
     }
 
     function switchModel(newModel) {
@@ -277,15 +344,18 @@
       // Update UI
       elements.btnRR.classList.toggle('active', newModel === 'dense');
       elements.btnCNN.classList.toggle('active', newModel === 'cnn');
-      elements.modelName.textContent = newModel.toUpperCase();
-      
-      console.log(`Switched to ${newModel.toUpperCase()} model`);
+      elements.modelName.textContent = newModel === 'dense' ? 'Dense' : 'CNN';
     }
 
-    function switchCamera() {
-      state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
-      elements.facingMode.textContent = state.facingMode === 'user' ? 'Frontal' : 'Trasera';
-      setupCamera();
+    async function switchCamera() {
+      if (isMobile()) {
+        // For mobile devices: toggle between front/back
+        state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
+        await setupCamera();
+      } else {
+        // For computers: show the camera selection dropdown
+        elements.cameraSelect.classList.toggle('d-none');
+      }
     }
   </script>
 </body>
