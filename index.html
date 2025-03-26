@@ -144,29 +144,26 @@
     elements.result.textContent = "Cargando modelos...";
     
     try {
-      // First check if WebGL is available
-      if (!tf.engine().backend || !tf.engine().backend.blocking) {
-        await tf.ready();
+      // Check WebGL availability first
+      if (!tf.engine().backend) {
+        await tf.setBackend('cpu');
+        alert("WebGL no disponible - Usando CPU (más lento)");
       }
+
+      // Load models with explicit input shapes
+      state.models.dense = await tf.loadLayersModel('public/tfjs_dense_model/model.json', {
+        strict: false  // Ignore missing batchInputShape
+      });
       
-      console.log("Attempting to load Dense model...");
-      state.models.dense = await tf.loadLayersModel('tfjs_dense_model/model.json');
-      console.log("Dense model loaded successfully");
-      
-      console.log("Attempting to load CNN model...");
-      state.models.cnn = await tf.loadLayersModel('tfjs_cnn_model/model.json');
-      console.log("CNN model loaded successfully");
-      
+      state.models.cnn = await tf.loadLayersModel('public/tfjs_cnn_model/model.json', {
+        strict: false  // Ignore missing batchInputShape
+      });
+
       elements.result.textContent = "Modelos cargados! ✅";
     } catch (error) {
-      console.error("Full error details:", error);
+      console.error("Error loading models:", error);
       elements.result.textContent = `Error: ${error.message.split('\n')[0]}`;
-      
-      // Check if WebGL is available
-      if (!tf.engine().backend || !tf.engine().backend.blocking) {
-        elements.result.textContent += " (WebGL no está disponible)";
       }
-    }
   }
 
     // Camera Setup - Enhanced for all devices
@@ -307,23 +304,26 @@
       draw();
     }
 
-    // Prediction
+    // Prediction 
     async function predict() {
       if (!state.models[state.currentModel]) return;
 
-      // Preprocess image
-      const tensor = tf.browser.fromPixels(elements.canvas)
-        .resizeNearestNeighbor([150, 150])
-        .toFloat();
-      
-      // Model-specific preprocessing
+      // Preprocess image with explicit shapes
       let inputTensor;
       if (state.currentModel === 'dense') {
-        // Dense model expects grayscale
-        inputTensor = tensor.mean(2).expandDims(0).expandDims(-1);
+        // Dense model: grayscale with explicit shape
+        inputTensor = tf.browser.fromPixels(elements.canvas)
+          .resizeNearestNeighbor([150, 150])
+          .mean(2)
+          .expandDims(0)
+          .expandDims(-1)
+          .toFloat();
       } else {
-        // CNN model expects RGB
-        inputTensor = tensor.div(255.0).expandDims(0);
+        // CNN model: RGB with explicit shape
+        inputTensor = tf.browser.fromPixels(elements.canvas)
+          .resizeNearestNeighbor([150, 150])
+          .div(255.0)
+          .expandDims(0);
       }
 
       // Make prediction
