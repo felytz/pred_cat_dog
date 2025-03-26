@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cat/Dog Classifier</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+</head>
+<body>
+    <h1>Cat/Dog Classifier</h1>
+    <video id="webcam" width="224" height="224" autoplay></video>
+    <button id="toggleModel">Switch Model (Current: <span id="modelName">Dense</span>)</button>
+    <p id="prediction">Prediction: None</p>
+
+    <script>
+        let currentModel = 'dense_model'; // Default model
+        let dense_model, cnn_model;
+        const webcam = document.getElementById('webcam');
+        const toggleBtn = document.getElementById('toggleModel');
+        const modelNameSpan = document.getElementById('modelName');
+        const predictionText = document.getElementById('prediction');
+
+        // Load models
+        async function loadModels() {
+            dense_model = await tf.loadLayersModel('/tfjs_dense_model/model.json');
+            cnn_model = await tf.loadLayersModel('/tfjs_cnn_model/model.json');
+            console.log("Models loaded!");
+        }
+
+        // Toggle between models
+        toggleBtn.addEventListener('click', () => {
+            currentModel = currentModel === 'dense_model' ? 'cnn_model' : 'dense_model';
+            modelNameSpan.textContent = currentModel === 'dense_model' ? 'Dense' : 'CNN';
+        });
+
+        // Predict from webcam
+        async function predict() {
+            const img = tf.browser.fromPixels(webcam)
+                .resizeNearestNeighbor([224, 224])
+                .toFloat()
+                .expandDims();
+
+            const model = currentModel === 'dense_model' ? dense_model : cnn_model;
+            const prediction = await model.predict(img).data();
+            const isDog = prediction[0] > 0.5;
+            predictionText.textContent = `Prediction: ${isDog ? 'Dog 🐶' : 'Cat 🐱'}`;
+            requestAnimationFrame(predict);
+        }
+
+        // Initialize webcam
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                webcam.srcObject = stream;
+                webcam.onloadedmetadata = () => {
+                    loadModels().then(predict);
+                };
+            });
+    </script>
+</body>
+</html>
