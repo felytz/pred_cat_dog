@@ -55,6 +55,8 @@
           <!-- Camera Feed -->
           <div class="position-relative mb-3">
             <canvas id="canvas" width="400" height="400" class="img-fluid border rounded"></canvas>
+            <!-- Add this near your existing canvas -->
+            <canvas id="processing-canvas" width="100" height="100" style="display: none;"></canvas>
             <div class="position-absolute top-0 start-0 m-2">
               <span id="facing-mode" class="badge bg-secondary">Cámara</span>
             </div>
@@ -291,12 +293,19 @@
       };
     }
 
+    const processingCtx = document.getElementById('processing-canvas').getContext('2d');
+
     // Video Processing
     function processVideoFeed(video) {
-      const ctx = elements.canvas.getContext('2d');
+  const ctx = elements.canvas.getContext('2d');
       
       function draw() {
+        // Draw to display canvas (400x400)
         ctx.drawImage(video, 0, 0, elements.canvas.width, elements.canvas.height);
+        
+        // Draw to processing canvas (100x100)
+        processingCtx.drawImage(video, 0, 0, 100, 100);
+        
         requestAnimationFrame(draw);
       }
       
@@ -308,20 +317,17 @@
     async function predict() {
       if (!state.models[state.currentModel]) return;
 
-      // Preprocess image with explicit shapes
       let inputTensor;
       if (state.currentModel === 'dense') {
-        // Dense model: grayscale with explicit shape
         inputTensor = tf.browser.fromPixels(elements.canvas)
-          .resizeNearestNeighbor([150, 150])
+          .resizeNearestNeighbor([100, 100])  // Key change
           .mean(2)
           .expandDims(0)
           .expandDims(-1)
           .toFloat();
       } else {
-        // CNN model: RGB with explicit shape
         inputTensor = tf.browser.fromPixels(elements.canvas)
-          .resizeNearestNeighbor([150, 150])
+          .resizeNearestNeighbor([100, 100])  // Key change
           .div(255.0)
           .expandDims(0);
       }
