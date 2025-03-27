@@ -134,12 +134,57 @@
 
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
-      if (checkWebGL()) {
-        await loadAllModels();
-        await setupCamera();
-        setupEventListeners();
+  if (checkWebGL()) {
+    try {
+      await loadAllModels();
+      await setupCamera(); // Try directly first
+      setupEventListeners();
+    } catch (error) {
+      console.error("Initialization error:", error);
+      elements.result.textContent = "Error al iniciar la aplicación";
+    }
+  }
+});
+
+    // Simplified Camera Setup
+    async function setupCamera() {
+      try {
+        // Stop any existing stream
+        if (state.stream) {
+          state.stream.getTracks().forEach(track => track.stop());
+        }
+
+        const constraints = {
+          video: {
+            width: { ideal: 400 },
+            height: { ideal: 400 },
+            facingMode: isMobile() ? state.facingMode : 'user'
+          }
+        };
+
+        state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+        startVideoStream();
+        
+        // Update camera indicator
+        elements.facingMode.textContent = isMobile() 
+          ? (state.facingMode === 'user' ? 'Frontal' : 'Trasera')
+          : 'Webcam';
+        
+      } catch (err) {
+        console.error("Camera setup failed:", err);
+        elements.result.textContent = "Por favor permite acceso a la cámara";
+        
+        // Try fallback constraints if first attempt fails
+        try {
+          const fallbackConstraints = { video: true };
+          state.stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+          startVideoStream();
+        } catch (fallbackError) {
+          console.error("Fallback camera failed:", fallbackError);
+          elements.result.textContent = "No se pudo acceder a ninguna cámara";
+        }
       }
-    });
+    }
 
     // Model Loading
     async function loadAllModels() {
@@ -160,21 +205,35 @@
 
     // Camera Setup - Enhanced for all devices
     async function setupCamera() {
-      // Stop any existing stream
-      if (state.stream) {
-        state.stream.getTracks().forEach(track => track.stop());
-      }
+      try {
+        // Detener stream existente
+        if (state.stream) {
+          state.stream.getTracks().forEach(track => track.stop());
+        }
 
-      // Get available devices
-      await getCameraDevices();
+        const constraints = {
+          video: {
+            width: { ideal: 400 },
+            height: { ideal: 400 },
+            facingMode: isMobile() ? state.facingMode : 'user'
+          }
+        };
 
-      // For mobile devices
-      if (isMobile()) {
-        await setupMobileCamera();
-      } 
-      // For computers
-      else {
-        await setupComputerCamera();
+        state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+        startVideoStream();
+        
+      } catch (err) {
+        console.error("Camera setup failed:", err);
+        elements.result.textContent = "Error al acceder a la cámara";
+        // Intenta con configuración más básica
+        try {
+          const fallbackConstraints = { video: true };
+          state.stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+          startVideoStream();
+        } catch (fallbackError) {
+          console.error("Fallback camera failed:", fallbackError);
+          elements.result.textContent = "No se pudo acceder a ninguna cámara";
+        }
       }
     }
 
@@ -183,62 +242,12 @@
       return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     }
 
-    // Setup for mobile devices
-    async function setupMobileCamera() {
-      elements.cameraSelect.classList.add('d-none');
-      
-      const constraints = {
-        video: {
-          width: 400,
-          height: 400,
-          facingMode: state.facingMode
-        }
-      };
-
-      try {
-        state.stream = await navigator.mediaDevices.getUserMedia(constraints);
-        startVideoStream();
-        elements.facingMode.textContent = state.facingMode === 'user' ? 'Frontal' : 'Trasera';
-      } catch (err) {
-        console.error("Mobile camera error:", err);
-        // Fallback to front camera if rear is unavailable
-        if (state.facingMode === 'environment') {
-          state.facingMode = 'user';
-          await setupMobileCamera();
-        } else {
-          elements.result.textContent = "Error de cámara";
-        }
+    // Update switchCamera function
+    async function switchCamera() {
+      if (isMobile()) {
+        state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
       }
-    }
-
-    // Setup for computers
-    async function setupComputerCamera() {
-      elements.cameraSelect.classList.remove('d-none');
-      
-      // Populate camera selection dropdown
-      populateCameraSelect();
-      
-      // Use first available camera by default
-      if (state.devices.length > 0 && !state.currentDeviceId) {
-        state.currentDeviceId = state.devices[0].deviceId;
-      }
-
-      const constraints = {
-        video: {
-          width: 400,
-          height: 400,
-          deviceId: state.currentDeviceId ? { exact: state.currentDeviceId } : undefined
-        }
-      };
-
-      try {
-        state.stream = await navigator.mediaDevices.getUserMedia(constraints);
-        startVideoStream();
-        elements.facingMode.textContent = "Webcam";
-      } catch (err) {
-        console.error("Computer camera error:", err);
-        elements.result.textContent = "Error de cámara";
-      }
+      await setupCamera();
     }
 
     // Get available camera devices
@@ -278,8 +287,15 @@
       video.autoplay = true;
       
       video.onloadedmetadata = () => {
-        processVideoFeed(video);
-        predict();
+        if (video.readyState >= 2) { // 2 = HAVE_ENOUGH_DATA
+          processVideoFeed(video);
+          predict();
+        } else {
+          video.oncanplay = () => {
+            processVideoFeed(video);
+            predict();
+          };
+        }
       };
     }
 
