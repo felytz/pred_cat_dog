@@ -3,8 +3,9 @@ import tensorflow_datasets as tfds
 import time
 import cv2
 from tensorflow import keras
-from keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Dropout
-from keras.models import Sequential
+from tensorflow.keras.layers import Input, Flatten, Dense, Dropout
+from tensorflow.keras.models import Sequential
+
 import numpy as np
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
@@ -44,21 +45,16 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random
 
 ### Modelo Regular con dropout
 
-modeloDenso1 = keras.models.Sequential([
-    Input(shape=(100, 100, 1)),
-    Flatten(),
-    
-    Dense(150, activation='relu'),
-    Dropout(0.5),  # 50% dropout after first dense layer
-    
-    Dense(150, activation='relu'),
-    Dropout(0.5),  # 50% dropout after second dense layer
-    
-    Dense(50, activation='relu'),
-    Dropout(0.3),  # 30% dropout (smaller since it's closer to output)
-    
-    Dense(1, activation='sigmoid')
-])
+modeloDenso1 = Sequential(name="sequential")  # Explicit model-level name
+modeloDenso1.add(Input(shape=(100, 100, 1), name="input_layer"))  # Named input layer
+modeloDenso1.add(Flatten(name="flatten"))
+modeloDenso1.add(Dense(150, activation='relu', name="dense"))
+modeloDenso1.add(Dropout(0.5, name="dropout"))
+modeloDenso1.add(Dense(150, activation='relu', name="dense_1"))
+modeloDenso1.add(Dropout(0.5, name="dropout_1"))
+modeloDenso1.add(Dense(50, activation='relu', name="dense_2"))
+modeloDenso1.add(Dropout(0.3, name="dropout_2"))
+modeloDenso1.add(Dense(1, activation='sigmoid', name="dense_3"))
 
 modeloDenso1.compile(optimizer='adam',
                     loss='binary_crossentropy',
@@ -72,7 +68,6 @@ history_Denso1 = modeloDenso1.fit(
         verbose=0
     )
 
-modeloDenso1.build(input_shape=(None, 100, 100, 1))  # Explicitly build with input shape
 modeloDenso1.save('dense_perros_gatos.h5')  # Save with shape info embedded
 
 ### Graficas

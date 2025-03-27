@@ -2,9 +2,10 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 import time
 import cv2
-from keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Dropout
 import keras_tuner as kt
-from keras.models import Sequential
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+
 import numpy as np
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
@@ -125,22 +126,26 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random
     
 
 ### Modelo CNN con dropout
+modeloCNN = Sequential(name="sequential")  # Important: Match this with TF.js expectations
 
-modeloCNN = Sequential([
-  Input( shape=(100, 100, 1) ),
+# Input layer with explicit name
+modeloCNN.add(Input(shape=(100, 100, 1), name="input_layer"))
 
-  Conv2D( 32, (3,3), activation='relu' ),
-  MaxPooling2D( 2, 2 ),
-  Conv2D( 64, (3,3), activation='relu' ),
-  MaxPooling2D( 2, 2 ),
-  Conv2D( 128, (3,3), activation='relu' ),
-  MaxPooling2D( 2, 2 ),
+# Conv/Pooling blocks with unique names
+modeloCNN.add(Conv2D(32, (3,3), activation='relu', name="conv2d_1"))
+modeloCNN.add(MaxPooling2D((2,2), name="maxpool2d_1"))
 
-  Flatten(),
-  Dense(100, activation='relu'),
-  Dropout(0.5),  # Drops 50% of neurons randomly
-  Dense(1, activation='sigmoid')
-])
+modeloCNN.add(Conv2D(64, (3,3), activation='relu', name="conv2d_2"))
+modeloCNN.add(MaxPooling2D((2,2), name="maxpool2d_2"))
+
+modeloCNN.add(Conv2D(128, (3,3), activation='relu', name="conv2d_3"))
+modeloCNN.add(MaxPooling2D((2,2), name="maxpool2d_3"))
+
+# Classifier head
+modeloCNN.add(Flatten(name="flatten"))
+modeloCNN.add(Dense(100, activation='relu', name="dense_1"))
+modeloCNN.add(Dropout(0.5, name="dropout_1"))
+modeloCNN.add(Dense(1, activation='sigmoid', name="dense_output"))
 
 modeloCNN.compile(optimizer='adam',
                     loss='binary_crossentropy',
@@ -157,7 +162,6 @@ history_CNN1 = modeloCNN.fit(
     )
 
 ### Se guarda el modelo en h5
-modeloCNN.build(input_shape=(None, 100, 100, 1))  # Explicitly build with input shape
 modeloCNN.save('cnn_perros_gatos.h5')  # Save with shape info embedded
 
 ### Graficas
