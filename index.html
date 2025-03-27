@@ -145,8 +145,8 @@
     async function loadAllModels() {
       try {
         // Load with explicit weight path mapping
-        state.models.dense = await tf.loadLayersModel('public/tfjs_dense_model/model.json');
-        state.models.cnn = await tf.loadLayersModel('public/tfjs_cnn_model/model.json');
+        state.models.dense = await tf.loadLayersModel('tfjs_dense_model/model.json');
+        state.models.cnn = await tf.loadLayersModel('tfjs_cnn_model/model.json');
         
         // Verify input shapes
         console.log("Dense model input shape:", state.models.dense.inputs[0].shape);
