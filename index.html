@@ -143,17 +143,18 @@
 
     // Model Loading
     async function loadAllModels() {
+      elements.result.textContent = "Cargando modelos...";
       try {
-        // Load with explicit weight path mapping
         state.models.dense = await tf.loadLayersModel('tfjs_dense_model/model.json');
+        console.log("Modelo Dense cargado:", state.models.dense);
+        
         state.models.cnn = await tf.loadLayersModel('tfjs_cnn_model/model.json');
+        console.log("Modelo CNN cargado:", state.models.cnn);
         
-        // Verify input shapes
-        console.log("Dense model input shape:", state.models.dense.inputs[0].shape);
-        console.log("CNN model input shape:", state.models.cnn.inputs[0].shape);
-        
+        elements.result.textContent = "Modelos cargados correctamente";
       } catch (error) {
-        console.error("Model loading failed:", error);
+        console.error("Error loading models:", error);
+        elements.result.textContent = "Error cargando modelos";
       }
     }
 
@@ -307,20 +308,21 @@
       if (!state.models[state.currentModel]) return;
 
       try {
-        // Get pixels from the 100x100 processing canvas
-        inputTensor = tf.browser.fromPixels(cameraCanvas)
+        const processingCanvas = document.getElementById('processing-canvas');
+        
+        // Preprocesamiento COMÚN para ambos modelos (grayscale)
+        const inputTensor = tf.browser.fromPixels(processingCanvas)
           .resizeNearestNeighbor([100, 100])
-          .mean(2)                    // Convert to grayscale
-          .expandDims(0)              // Add batch dimension
-          .expandDims(-1)             // Add channel dimension (now shape: [1, 100, 100, 1])
-          .div(255.0);                // Normalize to [0, 1]
+          .mean(2)                    // Convertir a grayscale
+          .expandDims(0)              // Añadir dimensión batch
+          .expandDims(-1)             // Añadir canal (resultando en [1, 100, 100, 1])
+          .div(255.0);                // Normalizar
 
-        // Predict
         const prediction = await state.models[state.currentModel].predict(inputTensor).data();
         const confidence = prediction[0] * 100;
         const isDog = confidence > 50;
 
-        // Update UI
+        // Actualizar UI
         elements.result.textContent = isDog ? "🐶 Perro" : "🐱 Gato";
         elements.confidenceValue.textContent = `${confidence.toFixed(1)}%`;
         elements.confidenceBar.style.width = `${confidence}%`;
@@ -328,12 +330,13 @@
           `linear-gradient(90deg, #4ecdc4, #4ecdc4)` : 
           `linear-gradient(90deg, #ff6b6b, #ff6b6b)`;
 
-        // Clean up
-        // inputTensor.dispose(); // Uncomment for TensorFlow.js v3.8.0+
+        inputTensor.dispose();
         
       } catch (error) {
         console.error("Prediction error:", error);
       }
+      setTimeout(predict, 200);
+    }
 
       // Repeat
       setTimeout(predict, 200);
