@@ -104,6 +104,14 @@
       return true;
     }
 
+    function checkTFJS() {
+      if (!tf || !tf.browser || !tf.loadLayersModel) {
+        alert('TensorFlow.js no está cargado correctamente. Recarga la página.');
+        return false;
+      }
+      return true;
+    }
+
     // App State
     const state = {
       currentModel: 'dense',
@@ -149,7 +157,6 @@
     // Simplified Camera Setup
     async function setupCamera() {
       try {
-        // Stop any existing stream
         if (state.stream) {
           state.stream.getTracks().forEach(track => track.stop());
         }
@@ -158,6 +165,7 @@
           video: {
             width: { ideal: 400 },
             height: { ideal: 400 },
+            deviceId: state.currentDeviceId ? { exact: state.currentDeviceId } : undefined,
             facingMode: isMobile() ? state.facingMode : 'user'
           }
         };
@@ -165,41 +173,31 @@
         state.stream = await navigator.mediaDevices.getUserMedia(constraints);
         startVideoStream();
         
-        // Update camera indicator
-        elements.facingMode.textContent = isMobile() 
-          ? (state.facingMode === 'user' ? 'Frontal' : 'Trasera')
-          : 'Webcam';
-        
       } catch (err) {
         console.error("Camera setup failed:", err);
-        elements.result.textContent = "Por favor permite acceso a la cámara";
-        
-        // Try fallback constraints if first attempt fails
+        // Intenta con configuraciones más simples
         try {
-          const fallbackConstraints = { video: true };
-          state.stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+          state.stream = await navigator.mediaDevices.getUserMedia({ video: true });
           startVideoStream();
         } catch (fallbackError) {
           console.error("Fallback camera failed:", fallbackError);
-          elements.result.textContent = "No se pudo acceder a ninguna cámara";
+          elements.result.textContent = "No se pudo acceder a la cámara";
         }
       }
     }
 
     // Model Loading
-    async function loadAllModels() {
-      elements.result.textContent = "Cargando modelos...";
+    async function loadModel(modelName) {
+      if (state.models[modelName]) return; // Ya está cargado
+      
+      elements.result.textContent = `Cargando modelo ${modelName}...`;
       try {
-        state.models.dense = await tf.loadLayersModel('tfjs_dense_model/model.json');
-        console.log("Modelo Dense cargado:", state.models.dense);
-        
-        state.models.cnn = await tf.loadLayersModel('tfjs_cnn_model/model.json');
-        console.log("Modelo CNN cargado:", state.models.cnn);
-        
-        elements.result.textContent = "Modelos cargados correctamente";
+        state.models[modelName] = await tf.loadLayersModel(`tfjs_${modelName}_model/model.json`);
+        console.log(`Modelo ${modelName} cargado correctamente`);
       } catch (error) {
-        console.error("Error loading models:", error);
-        elements.result.textContent = "Error cargando modelos";
+        console.error(`Error cargando modelo ${modelName}:`, error);
+        elements.result.textContent = `Error cargando modelo ${modelName}`;
+        throw error;
       }
     }
 
@@ -319,40 +317,58 @@
       draw();
     }
 
+    // Image processing
+    function prepareImage() {
+      const processingCanvas = document.getElementById('processing-canvas');
+      return tf.tidy(() => {
+        const tensor = tf.browser.fromPixels(processingCanvas, 1) // Convierte directamente a escala de grises
+          .resizeBilinear([100, 100])
+          .toFloat()
+          .div(255.0)
+          .expandDims(0);
+        return tensor;
+      });
+    }
+
+    function updateUI(confidence) {
+      const isDog = confidence > 50;
+      
+      // Actualizar el texto del resultado
+      elements.result.textContent = isDog ? "🐶 Perro" : "🐱 Gato";
+      
+      // Actualizar el porcentaje de confianza
+      elements.confidenceValue.textContent = `${confidence.toFixed(1)}%`;
+      
+      // Actualizar la barra de progreso
+      elements.confidenceBar.style.width = `${confidence}%`;
+      
+      // Cambiar color según la clase
+      elements.confidenceBar.style.background = isDog 
+        ? `linear-gradient(90deg, #4ecdc4, #4ecdc4)` 
+        : `linear-gradient(90deg, #ff6b6b, #ff6b6b)`;
+    }
+
     // Prediction 
-    // Prediction 
-async function predict() {
-  if (!state.models[state.currentModel]) return;
+    function predict() {
+      if (!state.models[state.currentModel]) return;
 
-  try {
-    const processingCanvas = document.getElementById('processing-canvas');
-    
-    const inputTensor = tf.browser.fromPixels(processingCanvas)
-      .resizeNearestNeighbor([100, 100])
-      .mean(2)
-      .expandDims(0)
-      .expandDims(-1)
-      .div(255.0);
-
-    const prediction = await state.models[state.currentModel].predict(inputTensor).data();
-    const confidence = prediction[0] * 100;
-    const isDog = confidence > 50;
-
-    elements.result.textContent = isDog ? "🐶 Perro" : "🐱 Gato";
-    elements.confidenceValue.textContent = `${confidence.toFixed(1)}%`;
-    elements.confidenceBar.style.width = `${confidence}%`;
-    elements.confidenceBar.style.background = isDog ? 
-      `linear-gradient(90deg, #4ecdc4, #4ecdc4)` : 
-      `linear-gradient(90deg, #ff6b6b, #ff6b6b)`;
-
-    inputTensor.dispose();
-    
-  } catch (error) {
-    console.error("Prediction error:", error);
-  }
-  // Solo un setTimeout
-  setTimeout(predict, 200);
-}
+      tf.engine().startScope();
+      try {
+        const inputTensor = prepareImage();
+        const prediction = state.models[state.currentModel].predict(inputTensor);
+        prediction.data().then(pred => {
+          const confidence = pred[0] * 100;
+          updateUI(confidence); // Aquí llamamos a la función que actualiza la UI
+          prediction.dispose();
+          requestAnimationFrame(predict);
+        });
+      } catch (error) {
+        console.error("Prediction error:", error);
+        elements.result.textContent = "Error en predicción"; // Mensaje de error en UI
+        setTimeout(predict, 200);
+      }
+      tf.engine().endScope();
+    }
 
     // Event Listeners
     function setupEventListeners() {
