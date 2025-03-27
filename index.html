@@ -55,6 +55,8 @@
           <!-- Camera Feed -->
           <div class="position-relative mb-3">
             <canvas id="canvas" width="400" height="400" class="img-fluid border rounded"></canvas>
+            <!-- Add this near your existing canvas -->
+            <canvas id="processing-canvas" width="100" height="100" style="display: none;"></canvas>
             <div class="position-absolute top-0 start-0 m-2">
               <span id="facing-mode" class="badge bg-secondary">Cámara</span>
             </div>
@@ -90,9 +92,18 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
 
   <script>
+    function checkWebGL() {
+      const gl = document.createElement('canvas').getContext('webgl');
+      if (!gl) {
+        alert('WebGL no está disponible en tu navegador. La aplicación puede no funcionar correctamente.');
+        return false;
+      }
+      return true;
+    }
+
     // App State
     const state = {
       currentModel: 'dense',
@@ -123,9 +134,11 @@
 
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
-      await loadAllModels();
-      await setupCamera();
-      setupEventListeners();
+      if (checkWebGL()) {
+        await loadAllModels();
+        await setupCamera();
+        setupEventListeners();
+      }
     });
 
     // Model Loading
@@ -133,8 +146,15 @@
       elements.result.textContent = "Cargando modelos...";
       
       try {
-        state.models.dense = await tf.loadGraphModel('tfjs_dense_model/model.json');
-        state.models.cnn = await tf.loadGraphModel('tfjs_cnn_model/model.json');
+        // Load models with explicit input shapes
+        state.models.dense = await tf.loadLayersModel('tfjs_dense_model/model.json');
+        // Manually set input shape for Dense model
+        state.models.dense.inputs[0].shape = [null, 100, 100, 1];
+        
+        state.models.cnn = await tf.loadLayersModel('tfjs_cnn_model/model.json');
+        // Manually set input shape for CNN model
+        state.models.cnn.inputs[0].shape = [null, 100, 100, 1];
+        
         elements.result.textContent = "Modelos cargados! ✅";
       } catch (error) {
         console.error("Error loading models:", error);
@@ -267,12 +287,19 @@
       };
     }
 
+    const processingCtx = document.getElementById('processing-canvas').getContext('2d');
+
     // Video Processing
     function processVideoFeed(video) {
-      const ctx = elements.canvas.getContext('2d');
+  const ctx = elements.canvas.getContext('2d');
       
       function draw() {
+        // Draw to display canvas (400x400)
         ctx.drawImage(video, 0, 0, elements.canvas.width, elements.canvas.height);
+        
+        // Draw to processing canvas (100x100)
+        processingCtx.drawImage(video, 0, 0, 100, 100);
+        
         requestAnimationFrame(draw);
       }
       
@@ -280,23 +307,23 @@
       draw();
     }
 
-    // Prediction
+    // Prediction 
     async function predict() {
       if (!state.models[state.currentModel]) return;
 
-      // Preprocess image
-      const tensor = tf.browser.fromPixels(elements.canvas)
-        .resizeNearestNeighbor([150, 150])
-        .toFloat();
-      
-      // Model-specific preprocessing
       let inputTensor;
       if (state.currentModel === 'dense') {
-        // Dense model expects grayscale
-        inputTensor = tensor.mean(2).expandDims(0).expandDims(-1);
+        inputTensor = tf.browser.fromPixels(elements.canvas)
+          .resizeNearestNeighbor([100, 100])  // Key change
+          .mean(2)
+          .expandDims(0)
+          .expandDims(-1)
+          .toFloat();
       } else {
-        // CNN model expects RGB
-        inputTensor = tensor.div(255.0).expandDims(0);
+        inputTensor = tf.browser.fromPixels(elements.canvas)
+          .resizeNearestNeighbor([100, 100])  // Key change
+          .div(255.0)
+          .expandDims(0);
       }
 
       // Make prediction

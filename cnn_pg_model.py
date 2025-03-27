@@ -157,7 +157,8 @@ history_CNN1 = modeloCNN.fit(
     )
 
 ### Se guarda el modelo en h5
-modeloCNN.save('cnn_perros_gatos.h5')
+modeloCNN.build(input_shape=(None, 100, 100, 1))  # Explicitly build with input shape
+modeloCNN.save('cnn_perros_gatos.h5')  # Save with shape info embedded
 
 ### Graficas
 plt.figure( figsize=(20,5))

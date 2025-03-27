@@ -72,8 +72,8 @@ history_Denso1 = modeloDenso1.fit(
         verbose=0
     )
 
-### Se guarda el modelo en h5
-modeloDenso1.save('dense_perros_gatos.h5')
+modeloDenso1.build(input_shape=(None, 100, 100, 1))  # Explicitly build with input shape
+modeloDenso1.save('dense_perros_gatos.h5')  # Save with shape info embedded
 
 ### Graficas
 plt.figure( figsize=(20,5))
