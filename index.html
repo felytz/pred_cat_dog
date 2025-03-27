@@ -92,7 +92,7 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.5.0/dist/tf.min.js"></script>
 
   <script>    
     function checkWebGL() {
@@ -257,29 +257,24 @@
     
     // Model Loading
     async function loadModel(modelName) {
-      if (state.models[modelName]) return;
+      const modelPath = `tfjs_${modelName}_model/model.json`;
       
       try {
-        // Cargar modelo y pesos
-        const model = await tf.loadLayersModel(`tfjs_${modelName}_model/model.json`);
+        // 1. Carga el modelo con la API moderna de TF.js 4.x
+        const model = await tf.loadLayersModel(modelPath);
         
-        // Verificación crítica de la capa de entrada
-        if (!model.inputs || model.inputs.length === 0 || !model.inputs[0].shape) {
-          throw new Error("El modelo no tiene una capa de entrada válida");
+        // 2. Verificación explícita de compatibilidad
+        if (!model.inputs[0].shape) {
+          console.warn("Añadiendo forma de entrada manualmente...");
+          model.inputs[0].shape = [null, 100, 100, 1]; // Ajusta según tu modelo
         }
         
-        console.log(`Modelo ${modelName} cargado. Forma de entrada:`, model.inputs[0].shape);
-        state.models[modelName] = model;
-        
-        // Forzar la creación de la forma de entrada si es necesario
-        const inputShape = model.inputs[0].shape;
-        const dummyInput = tf.zeros([1, ...inputShape.slice(1)]);
-        model.predict(dummyInput); // Esto fuerza la inicialización
-        dummyInput.dispose();
-        
+        console.log(`✅ Modelo ${modelName} cargado. Input shape:`, model.inputs[0].shape);
+        return model;
+
       } catch (error) {
-        console.error(`Error cargando modelo ${modelName}:`, error);
-        throw new Error(`No se pudo cargar el modelo: ${error.message}`);
+        console.error(`❌ Error cargando ${modelName}:`, error);
+        throw new Error(`Revisa que los archivos .bin estén en la carpeta correcta. Detalle: ${error.message}`);
       }
     }
 

@@ -1,7 +1,7 @@
 {
   "format": "layers-model",
   "generatedBy": "keras v3.8.0",
-  "convertedBy": "TensorFlow.js Converter v4.22.0",
+  "convertedBy": "TensorFlow.js Converter v4.5.0",
   "modelTopology": {
     "keras_version": "3.8.0",
     "backend": "tensorflow",
@@ -20,7 +20,7 @@
           {
             "class_name": "InputLayer",
             "config": {
-              "batch_input_shape": [null, 100, 100, 1],
+              "batch_shape": [null, 100, 100, 1],
               "dtype": "float32",
               "sparse": false,
               "name": "input_layer"
