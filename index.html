@@ -146,8 +146,7 @@
       switchCamera: document.getElementById('switch-camera'),
       cameraSelect: document.getElementById('camera-select')
     };
-
-    // Initialize
+    
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
       // 1. Check for WebGL and TF.js support
@@ -163,6 +162,11 @@
         // 3. Wait for TensorFlow.js to be fully ready
         await tf.ready();
         console.log('TensorFlow.js está listo');
+        
+        // Verificación explícita
+        if (!state.models.dense || !state.models.dense.inputs[0].shape) {
+          throw new Error("El modelo dense no se inicializó correctamente");
+        }
 
         // 4. Get camera devices list (for desktop)
         await getCameraDevices();
@@ -197,59 +201,24 @@
       }
     });
 
-    // Simplified Camera Setup
-    async function setupCamera() {
-      try {
-        if (state.stream) {
-          state.stream.getTracks().forEach(track => track.stop());
-        }
-
-        const constraints = {
-          video: {
-            width: { ideal: 400 },
-            height: { ideal: 400 },
-            deviceId: state.currentDeviceId ? { exact: state.currentDeviceId } : undefined,
-            facingMode: isMobile() ? state.facingMode : 'user'
-          }
-        };
-
-        state.stream = await navigator.mediaDevices.getUserMedia(constraints);
-        startVideoStream();
-        
-      } catch (err) {
-        console.error("Camera setup failed:", err);
-        // Intenta con configuraciones más simples
+    async function initApp() {
         try {
-          state.stream = await navigator.mediaDevices.getUserMedia({ video: true });
-          startVideoStream();
-        } catch (fallbackError) {
-          console.error("Fallback camera failed:", fallbackError);
-          elements.result.textContent = "No se pudo acceder a la cámara";
+            // Cargar solo el modelo inicial para una carga más rápida
+            await loadModel('dense');
+            
+            // Cargar el otro modelo en segundo plano
+            loadModel('cnn').catch(e => console.error("CNN model failed to load", e));
+            
+            await setupCamera();
+            setupEventListeners();
+            predict();
+        } catch (error) {
+            console.error("Init failed:", error);
+            elements.result.textContent = "Error al iniciar la aplicación";
         }
-      }
     }
-
-    // Model Loading
-    async function loadModel(modelName) {
-      if (state.models[modelName]) return;
-      
-      try {
-        const model = await tf.loadLayersModel(`tfjs_${modelName}_model/model.json`);
-        console.log(`Modelo ${modelName} cargado. Forma de entrada:`, model.inputs[0].shape);
-        
-        // Verificación adicional
-        if (!model.inputs[0].shape) {
-          throw new Error(`El modelo ${modelName} no tiene forma de entrada definida`);
-        }
-        
-        state.models[modelName] = model;
-      } catch (error) {
-        console.error(`Error cargando modelo ${modelName}:`, error);
-        throw error;
-      }
-    }
-
-    // Camera Setup - Enhanced for all devices
+    
+    // Simplified Camera Setup
     async function setupCamera() {
       try {
         // Detener stream existente
@@ -280,6 +249,34 @@
           console.error("Fallback camera failed:", fallbackError);
           elements.result.textContent = "No se pudo acceder a ninguna cámara";
         }
+      }
+    }
+    
+    // Model Loading
+    async function loadModel(modelName) {
+      if (state.models[modelName]) return;
+      
+      try {
+        // Cargar modelo y pesos
+        const model = await tf.loadLayersModel(`tfjs_${modelName}_model/model.json`);
+        
+        // Verificación crítica de la capa de entrada
+        if (!model.inputs || model.inputs.length === 0 || !model.inputs[0].shape) {
+          throw new Error("El modelo no tiene una capa de entrada válida");
+        }
+        
+        console.log(`Modelo ${modelName} cargado. Forma de entrada:`, model.inputs[0].shape);
+        state.models[modelName] = model;
+        
+        // Forzar la creación de la forma de entrada si es necesario
+        const inputShape = model.inputs[0].shape;
+        const dummyInput = tf.zeros([1, ...inputShape.slice(1)]);
+        model.predict(dummyInput); // Esto fuerza la inicialización
+        dummyInput.dispose();
+        
+      } catch (error) {
+        console.error(`Error cargando modelo ${modelName}:`, error);
+        throw new Error(`No se pudo cargar el modelo: ${error.message}`);
       }
     }
 
@@ -365,29 +362,16 @@
       draw();
     }
 
-    // Image processing
+    // Corregir la función prepareImage():
     function prepareImage() {
-      return tf.tidy(() => {
-        const processingCanvas = document.getElementById('processing-canvas');
-        let tensor = tf.browser.fromPixels(processingCanvas, 1) // 1 canal (escala de grises)
-                    .toFloat()
-                    .div(255.0);
-        
-        // Verificar si el modelo espera una forma específica
-        if (state.models[state.currentModel]) {
-          const expectedShape = state.models[state.currentModel].inputs[0].shape.slice(1);
-          if (expectedShape.length === 3) { // Para CNN [100, 100, 1]
-            tensor = tensor.expandDims(0); // Añade dimensión batch
-          } else if (expectedShape.length === 1) { // Para Dense [10000] después de flatten
-            tensor = tensor.reshape([1, -1]); // Aplana y añade batch
-          }
-        } else {
-          // Por defecto, asumir forma [1, 100, 100, 1]
-          tensor = tensor.expandDims(0);
-        }
-        
-        return tensor;
-      });
+        return tf.tidy(() => {
+            const processingCanvas = document.getElementById('processing-canvas');
+            // Todos los modelos deben recibir (1, 100, 100, 1)
+            return tf.browser.fromPixels(processingCanvas, 1)
+                .toFloat()
+                .div(255.0)
+                .reshape([1, 100, 100, 1]);
+        });
     }
 
     function updateUI(confidence) {
@@ -410,28 +394,33 @@
 
     // Prediction 
     async function predict() {
-      if (!state.models[state.currentModel]) return;
+        if (!state.models[state.currentModel]) return;
 
-      try {
-        const inputTensor = prepareImage();
-        const model = state.models[state.currentModel];
-        
-        // Verificación de formas
-        const expectedShape = model.inputs[0].shape.slice(1); // Elimina la dimensión batch
-        const inputShape = inputTensor.shape.slice(1);
-        
-        if (!arraysEqual(inputShape, expectedShape)) {
-          console.error(`Forma del tensor no coincide. Esperado: [${expectedShape}], Recibido: [${inputShape}]`);
-          inputTensor.dispose();
-          setTimeout(predict, 100);
-          return;
+        try {
+            const inputTensor = prepareImage();
+            const model = state.models[state.currentModel];
+            
+            // Verificación de formas
+            const expectedShape = model.inputs[0].shape.slice(1);
+            const inputShape = inputTensor.shape.slice(1);
+            
+            if (!arraysEqual(inputShape, expectedShape)) {
+                console.error(`Forma del tensor no coincide. Esperado: [${expectedShape}], Recibido: [${inputShape}]`);
+                inputTensor.dispose();
+                setTimeout(predict, 100);
+                return;
+            }
+            
+            const prediction = await model.predict(inputTensor).data();
+            const confidence = prediction[0] * 100; // Convertir a porcentaje
+            updateUI(confidence);
+            inputTensor.dispose();
+            
+        } catch (error) {
+            console.error("Prediction error:", error);
+        } finally {
+            requestAnimationFrame(predict); // Bucle continuo
         }
-        
-        const prediction = await model.predict(inputTensor).data();
-        // ... resto del código
-      } catch (error) {
-        // ... manejo de errores
-      }
     }
 
     // Función de ayuda para comparar arrays
