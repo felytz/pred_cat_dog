@@ -231,15 +231,14 @@
 
     // Model Loading
     async function loadModel(modelName) {
-      if (state.models[modelName]) return; // Ya está cargado
+      if (state.models[modelName]) return;
       
-      elements.result.textContent = `Cargando modelo ${modelName}...`;
       try {
-        state.models[modelName] = await tf.loadLayersModel(`tfjs_${modelName}_model/model.json`);
-        console.log(`Modelo ${modelName} cargado correctamente`);
+        const model = await tf.loadLayersModel(`tfjs_${modelName}_model/model.json`);
+        console.log(`Modelo ${modelName} cargado. Forma de entrada:`, model.inputs[0].shape);
+        state.models[modelName] = model;
       } catch (error) {
         console.error(`Error cargando modelo ${modelName}:`, error);
-        elements.result.textContent = `Error cargando modelo ${modelName}`;
         throw error;
       }
     }
@@ -362,13 +361,17 @@
 
     // Image processing
     function prepareImage() {
-      const processingCanvas = document.getElementById('processing-canvas');
       return tf.tidy(() => {
-        const tensor = tf.browser.fromPixels(processingCanvas, 1) // Convierte directamente a escala de grises
+        const processingCanvas = document.getElementById('processing-canvas');
+        // Asegúrate de que la imagen tenga 3 canales (RGB) aunque sea en escala de grises
+        const tensor = tf.browser.fromPixels(processingCanvas)
           .resizeBilinear([100, 100])
-          .toFloat()
-          .div(255.0)
-          .expandDims(0);
+          .mean(2) // Convertir a escala de grises
+          .expandDims(0) // Añadir dimensión batch
+          .expandDims(-1) // Añadir dimensión del canal
+          .div(255.0);
+        
+        console.log("Forma del tensor de entrada:", tensor.shape); // Debería ser [1, 100, 100, 1]
         return tensor;
       });
     }
@@ -398,20 +401,43 @@
       tf.engine().startScope();
       try {
         const inputTensor = prepareImage();
+        console.log("Forma del tensor preparado:", inputTensor.shape);
+        
+        // Verifica que la forma coincida con lo que espera el modelo
+        const expectedShape = state.models[state.currentModel].inputs[0].shape.slice(1);
+        if (!arraysEqual(inputTensor.shape.slice(1), expectedShape)) {
+          console.error(`Error: El modelo espera forma [${expectedShape}] pero recibió [${inputTensor.shape.slice(1)}]`);
+          elements.result.textContent = "Error de configuración del modelo";
+          inputTensor.dispose();
+          return; // Add this to exit early
+        }
+
         const prediction = state.models[state.currentModel].predict(inputTensor);
         prediction.data().then(pred => {
           const confidence = pred[0] * 100;
-          updateUI(confidence); // Aquí llamamos a la función que actualiza la UI
+          updateUI(confidence);
           prediction.dispose();
+          inputTensor.dispose(); // Dispose input tensor after prediction
           requestAnimationFrame(predict);
+        }).catch(err => {
+          console.error("Prediction data error:", err);
+          inputTensor.dispose();
+          setTimeout(predict, 200);
         });
+
       } catch (error) {
         console.error("Prediction error:", error);
-        elements.result.textContent = "Error en predicción"; // Mensaje de error en UI
+        elements.result.textContent = "Error en predicción";
         setTimeout(predict, 200);
       }
       tf.engine().endScope();
     }
+
+  // Moved outside the predict function for better organization
+  function arraysEqual(a, b) {
+    return a.length === b.length && a.every((val, i) => val === b[i]);
+  }
+    
 
     // Event Listeners
     function setupEventListeners() {
