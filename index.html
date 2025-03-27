@@ -292,7 +292,7 @@
 
     // Video Processing
     function processVideoFeed(video) {
-  const ctx = elements.canvas.getContext('2d');
+    const ctx = elements.canvas.getContext('2d');
       
       function draw() {
         // Draw to display canvas (400x400)
@@ -312,38 +312,38 @@
     async function predict() {
       if (!state.models[state.currentModel]) return;
 
-      let inputTensor;
-      if (state.currentModel === 'dense') {
-        inputTensor = tf.browser.fromPixels(elements.canvas)
-          .resizeNearestNeighbor([100, 100])  // Key change
-          .mean(2)
-          .expandDims(0)
-          .expandDims(-1)
-          .toFloat();
-      } else {
-        inputTensor = tf.browser.fromPixels(elements.canvas)
-          .resizeNearestNeighbor([100, 100])  // Key change
-          .div(255.0)
-          .expandDims(0);
+      try {
+        // Get pixels from the 100x100 processing canvas
+        let inputTensor = tf.browser.fromPixels(document.getElementById('processing-canvas'))
+          .toFloat()
+          .div(255.0)  // Normalize
+          .expandDims(0);  // Add batch dimension
+
+        // For Dense model: Convert to grayscale and ensure shape
+        if (state.currentModel === 'dense') {
+          inputTensor = inputTensor.mean(2).expandDims(-1);
+        }
+
+        // Predict
+        const prediction = await state.models[state.currentModel].predict(inputTensor).data();
+        const confidence = prediction[0] * 100;
+        const isDog = confidence > 50;
+
+        // Update UI
+        elements.result.textContent = isDog ? "🐶 Perro" : "🐱 Gato";
+        elements.confidenceValue.textContent = `${confidence.toFixed(1)}%`;
+        elements.confidenceBar.style.width = `${confidence}%`;
+        elements.confidenceBar.style.background = isDog ? 
+          `linear-gradient(90deg, #4ecdc4, #4ecdc4)` : 
+          `linear-gradient(90deg, #ff6b6b, #ff6b6b)`;
+
+        // Clean up
+        // inputTensor.dispose(); // Uncomment for TensorFlow.js v3.8.0+
+        
+      } catch (error) {
+        console.error("Prediction error:", error);
       }
 
-      // Make prediction
-      const prediction = await state.models[state.currentModel].predict(inputTensor).data();
-      const confidence = prediction[0] * 100;
-      const isDog = confidence > 50;
-      
-      // Update UI
-      elements.result.textContent = isDog ? "🐶 Perro" : "🐱 Gato";
-      elements.confidenceValue.textContent = `${confidence.toFixed(1)}%`;
-      elements.confidenceBar.style.width = `${confidence}%`;
-      elements.confidenceBar.style.background = isDog ? 
-        `linear-gradient(90deg, #4ecdc4, #4ecdc4)` : 
-        `linear-gradient(90deg, #ff6b6b, #ff6b6b)`;
-
-      // Clean up
-      tensor.dispose();
-      inputTensor.dispose();
-      
       // Repeat
       setTimeout(predict, 200);
     }
