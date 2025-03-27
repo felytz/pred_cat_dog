@@ -202,20 +202,23 @@
     });
 
     async function initApp() {
-        try {
-            // Cargar solo el modelo inicial para una carga más rápida
-            await loadModel('dense');
-            
-            // Cargar el otro modelo en segundo plano
-            loadModel('cnn').catch(e => console.error("CNN model failed to load", e));
-            
-            await setupCamera();
-            setupEventListeners();
-            predict();
-        } catch (error) {
-            console.error("Init failed:", error);
-            elements.result.textContent = "Error al iniciar la aplicación";
+      try {
+        await loadModel('dense');
+        await loadModel('cnn').catch(e => console.warn("CNN optional:", e));
+        
+        if (!state.models.dense) {
+          throw new Error("El modelo dense es requerido");
         }
+        
+        await setupCamera();
+        setupEventListeners();
+        predict();
+      } catch (error) {
+        console.error("Init error:", error);
+        elements.result.textContent = `Error: ${error.message}`;
+        // Muestra más detalles en la UI para depuración
+        document.body.innerHTML += `<div class="alert alert-danger">${error.stack}</div>`;
+      }
     }
     
     // Simplified Camera Setup
