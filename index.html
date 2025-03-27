@@ -94,7 +94,7 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
 
-  <script>
+  <script>    
     function checkWebGL() {
       const gl = document.createElement('canvas').getContext('webgl');
       if (!gl) {
@@ -111,6 +111,13 @@
       }
       return true;
     }
+
+    tf.ready().then(() => {
+      console.log('TensorFlow.js está listo');
+      initApp();
+    }).catch(err => {
+      console.error('Error inicializando TensorFlow.js:', err);
+    });
 
     // App State
     const state = {
@@ -141,18 +148,54 @@
     };
 
     // Initialize
+    // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
-  if (checkWebGL()) {
-    try {
-      await loadAllModels();
-      await setupCamera(); // Try directly first
-      setupEventListeners();
-    } catch (error) {
-      console.error("Initialization error:", error);
-      elements.result.textContent = "Error al iniciar la aplicación";
-    }
-  }
-});
+      // 1. Check for WebGL and TF.js support
+      if (!checkWebGL() || !checkTFJS()) {
+        elements.result.textContent = "Tu navegador no soporta todas las características requeridas";
+        return;
+      }
+
+      // 2. Show loading state
+      elements.result.textContent = "Inicializando...";
+      
+      try {
+        // 3. Wait for TensorFlow.js to be fully ready
+        await tf.ready();
+        console.log('TensorFlow.js está listo');
+
+        // 4. Get camera devices list (for desktop)
+        await getCameraDevices();
+        if (state.devices.length > 0) {
+          state.currentDeviceId = state.devices[0].deviceId;
+          populateCameraSelect();
+        }
+
+        // 5. Start with default model (load on demand)
+        await loadModel('dense');
+        
+        // 6. Setup camera - with fallback handling
+        await setupCamera();
+        
+        // 7. Setup event listeners
+        setupEventListeners();
+        
+        // 8. Start prediction loop
+        predict();
+
+      } catch (error) {
+        console.error("Initialization error:", error);
+        elements.result.textContent = `Error de inicialización: ${error.message}`;
+        
+        // Try to recover with basic functionality
+        try {
+          await setupCamera();
+          if (state.stream) predict();
+        } catch (fallbackError) {
+          elements.result.textContent = "La aplicación no puede iniciar";
+        }
+      }
+    });
 
     // Simplified Camera Setup
     async function setupCamera() {
