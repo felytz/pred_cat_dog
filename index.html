@@ -143,23 +143,17 @@
 
     // Model Loading
     async function loadAllModels() {
-      elements.result.textContent = "Cargando modelos...";
-      
       try {
-        // Load models with explicit input shapes
-        state.models.dense = await tf.loadLayersModel('tfjs_dense_model/model.json');
-        // Manually set input shape for Dense model
-        state.models.dense.inputs[0].shape = [null, 100, 100, 1];
+        // Load with explicit weight path mapping
+        state.models.dense = await tf.loadLayersModel('public/tfjs_dense_model/model.json');
+        state.models.cnn = await tf.loadLayersModel('public/tfjs_cnn_model/model.json');
         
-        state.models.cnn = await tf.loadLayersModel('tfjs_cnn_model/model.json');
-        // Manually set input shape for CNN model
-
-        state.models.cnn.inputs[0].shape = [null, 100, 100, 1];
+        // Verify input shapes
+        console.log("Dense model input shape:", state.models.dense.inputs[0].shape);
+        console.log("CNN model input shape:", state.models.cnn.inputs[0].shape);
         
-        elements.result.textContent = "Modelos cargados! ✅";
       } catch (error) {
-        console.error("Error loading models:", error);
-        elements.result.textContent = `Error: ${error.message.split('\n')[0]}`;
+        console.error("Model loading failed:", error);
       }
     }
 
