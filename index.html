@@ -153,6 +153,7 @@
         
         state.models.cnn = await tf.loadLayersModel('tfjs_cnn_model/model.json');
         // Manually set input shape for CNN model
+
         state.models.cnn.inputs[0].shape = [null, 100, 100, 1];
         
         elements.result.textContent = "Modelos cargados! ✅";
