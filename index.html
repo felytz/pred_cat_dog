@@ -236,6 +236,12 @@
       try {
         const model = await tf.loadLayersModel(`tfjs_${modelName}_model/model.json`);
         console.log(`Modelo ${modelName} cargado. Forma de entrada:`, model.inputs[0].shape);
+        
+        // Verificación adicional
+        if (!model.inputs[0].shape) {
+          throw new Error(`El modelo ${modelName} no tiene forma de entrada definida`);
+        }
+        
         state.models[modelName] = model;
       } catch (error) {
         console.error(`Error cargando modelo ${modelName}:`, error);
@@ -343,15 +349,15 @@
 
     // Video Processing
     function processVideoFeed(video) {
-    const ctx = elements.canvas.getContext('2d');
+      const ctx = elements.canvas.getContext('2d');
+      const processingCtx = document.getElementById('processing-canvas').getContext('2d');
       
       function draw() {
-        // Draw to display canvas (400x400)
-        ctx.drawImage(video, 0, 0, elements.canvas.width, elements.canvas.height);
-        
-        // Draw to processing canvas (100x100)
-        processingCtx.drawImage(video, 0, 0, 100, 100);
-        
+        if (video.readyState >= 2) {
+          // Solo dibujar si el video tiene datos
+          ctx.drawImage(video, 0, 0, elements.canvas.width, elements.canvas.height);
+          processingCtx.drawImage(video, 0, 0, 100, 100);
+        }
         requestAnimationFrame(draw);
       }
       
@@ -363,15 +369,23 @@
     function prepareImage() {
       return tf.tidy(() => {
         const processingCanvas = document.getElementById('processing-canvas');
-        // Asegúrate de que la imagen tenga 3 canales (RGB) aunque sea en escala de grises
-        const tensor = tf.browser.fromPixels(processingCanvas)
-          .resizeBilinear([100, 100])
-          .mean(2) // Convertir a escala de grises
-          .expandDims(0) // Añadir dimensión batch
-          .expandDims(-1) // Añadir dimensión del canal
-          .div(255.0);
+        let tensor = tf.browser.fromPixels(processingCanvas, 1) // 1 canal (escala de grises)
+                    .toFloat()
+                    .div(255.0);
         
-        console.log("Forma del tensor de entrada:", tensor.shape); // Debería ser [1, 100, 100, 1]
+        // Verificar si el modelo espera una forma específica
+        if (state.models[state.currentModel]) {
+          const expectedShape = state.models[state.currentModel].inputs[0].shape.slice(1);
+          if (expectedShape.length === 3) { // Para CNN [100, 100, 1]
+            tensor = tensor.expandDims(0); // Añade dimensión batch
+          } else if (expectedShape.length === 1) { // Para Dense [10000] después de flatten
+            tensor = tensor.reshape([1, -1]); // Aplana y añade batch
+          }
+        } else {
+          // Por defecto, asumir forma [1, 100, 100, 1]
+          tensor = tensor.expandDims(0);
+        }
+        
         return tensor;
       });
     }
@@ -395,49 +409,35 @@
     }
 
     // Prediction 
-    function predict() {
+    async function predict() {
       if (!state.models[state.currentModel]) return;
 
-      tf.engine().startScope();
       try {
         const inputTensor = prepareImage();
-        console.log("Forma del tensor preparado:", inputTensor.shape);
+        const model = state.models[state.currentModel];
         
-        // Verifica que la forma coincida con lo que espera el modelo
-        const expectedShape = state.models[state.currentModel].inputs[0].shape.slice(1);
-        if (!arraysEqual(inputTensor.shape.slice(1), expectedShape)) {
-          console.error(`Error: El modelo espera forma [${expectedShape}] pero recibió [${inputTensor.shape.slice(1)}]`);
-          elements.result.textContent = "Error de configuración del modelo";
+        // Verificación de formas
+        const expectedShape = model.inputs[0].shape.slice(1); // Elimina la dimensión batch
+        const inputShape = inputTensor.shape.slice(1);
+        
+        if (!arraysEqual(inputShape, expectedShape)) {
+          console.error(`Forma del tensor no coincide. Esperado: [${expectedShape}], Recibido: [${inputShape}]`);
           inputTensor.dispose();
-          return; // Add this to exit early
+          setTimeout(predict, 100);
+          return;
         }
-
-        const prediction = state.models[state.currentModel].predict(inputTensor);
-        prediction.data().then(pred => {
-          const confidence = pred[0] * 100;
-          updateUI(confidence);
-          prediction.dispose();
-          inputTensor.dispose(); // Dispose input tensor after prediction
-          requestAnimationFrame(predict);
-        }).catch(err => {
-          console.error("Prediction data error:", err);
-          inputTensor.dispose();
-          setTimeout(predict, 200);
-        });
-
+        
+        const prediction = await model.predict(inputTensor).data();
+        // ... resto del código
       } catch (error) {
-        console.error("Prediction error:", error);
-        elements.result.textContent = "Error en predicción";
-        setTimeout(predict, 200);
+        // ... manejo de errores
       }
-      tf.engine().endScope();
     }
 
-  // Moved outside the predict function for better organization
-  function arraysEqual(a, b) {
-    return a.length === b.length && a.every((val, i) => val === b[i]);
-  }
-    
+    // Función de ayuda para comparar arrays
+    function arraysEqual(a, b) {
+      return a.length === b.length && a.every((val, i) => val === b[i]);
+    }
 
     // Event Listeners
     function setupEventListeners() {
@@ -455,15 +455,33 @@
       });
     }
 
-    function switchModel(newModel) {
+    async function switchModel(newModel) {
       if (state.currentModel === newModel || state.isModelLoading) return;
       
-      state.currentModel = newModel;
+      state.isModelLoading = true;
+      elements.result.textContent = "Cargando modelo...";
       
-      // Update UI
-      elements.btnRR.classList.toggle('active', newModel === 'dense');
-      elements.btnCNN.classList.toggle('active', newModel === 'cnn');
-      elements.modelName.textContent = newModel === 'dense' ? 'Dense' : 'CNN';
+      try {
+        await loadModel(newModel);
+        state.currentModel = newModel;
+        
+        // Actualizar UI
+        document.querySelectorAll('.model-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.id === `btn-${newModel}`);
+          btn.classList.toggle('btn-primary', btn.id === `btn-${newModel}`);
+          btn.classList.toggle('btn-outline-primary', btn.id !== `btn-${newModel}`);
+        });
+        
+        elements.modelName.textContent = newModel === 'dense' ? 'Dense' : 'CNN';
+        
+        // Verificación correcta de la forma de entrada
+        console.log("Input shape expected:", state.models[newModel].inputs[0].shape);
+      } catch (error) {
+        console.error("Error switching model:", error);
+        elements.result.textContent = "Error al cambiar modelo";
+      } finally {
+        state.isModelLoading = false;
+      }
     }
 
     async function switchCamera() {
