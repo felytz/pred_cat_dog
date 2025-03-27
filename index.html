@@ -314,15 +314,12 @@
 
       try {
         // Get pixels from the 100x100 processing canvas
-        let inputTensor = tf.browser.fromPixels(document.getElementById('processing-canvas'))
-          .toFloat()
-          .div(255.0)  // Normalize
-          .expandDims(0);  // Add batch dimension
-
-        // For Dense model: Convert to grayscale and ensure shape
-        if (state.currentModel === 'dense') {
-          inputTensor = inputTensor.mean(2).expandDims(-1);
-        }
+        inputTensor = tf.browser.fromPixels(cameraCanvas)
+          .resizeNearestNeighbor([100, 100])
+          .mean(2)                    // Convert to grayscale
+          .expandDims(0)              // Add batch dimension
+          .expandDims(-1)             // Add channel dimension (now shape: [1, 100, 100, 1])
+          .div(255.0);                // Normalize to [0, 1]
 
         // Predict
         const prediction = await state.models[state.currentModel].predict(inputTensor).data();
