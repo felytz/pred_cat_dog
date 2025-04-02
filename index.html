@@ -19,24 +19,24 @@
       border-radius: 5px;
       margin: 10px 0;
     }
-    #confidence-bar {
-      height: 20px;
-      background: #e9ecef;
-      margin: 10px 0;
-      border-radius: 10px;
-      overflow: hidden;
-    }
-    #confidence-progress {
-      height: 100%;
-      background: linear-gradient(90deg, #ff6b6b, #4ecdc4);
-      width: 50%;
-      transition: width 0.3s;
-    }
     .model-active {
       box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.5);
     }
     #camera-select {
       margin-bottom: 10px;
+    }
+    #graphs-container {
+      display: none;
+      margin-top: 20px;
+    }
+    .model-graph {
+      max-width: 100%;
+      margin-bottom: 15px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    #toggle-graphs {
+      margin-top: 10px;
     }
   </style>
 </head>
@@ -83,6 +83,17 @@
           <!-- Controls -->
           <div class="d-flex justify-content-center gap-2">
             <button id="switch-camera" class="btn btn-secondary">Cambiar Cámara</button>
+            <button id="toggle-graphs" class="btn btn-info">Ver Gráficas</button>
+          </div>
+
+          <!-- Graphs Container -->
+          <div id="graphs-container" class="row mt-3">
+            <div class="col-md-6">
+              <img id="acc-graph" class="model-graph" src="" alt="Accuracy Graph">
+            </div>
+            <div class="col-md-6">
+              <img id="loss-graph" class="model-graph" src="" alt="Loss Graph">
+            </div>
           </div>
         </div>
       </div>
@@ -105,7 +116,8 @@
       facingMode: 'environment',
       isModelLoading: false,
       devices: [],
-      currentDeviceId: null
+      currentDeviceId: null,
+      showGraphs: false
     };
 
     // DOM Elements
@@ -114,14 +126,16 @@
       processingCanvas: document.getElementById('processing-canvas'),
       result: document.getElementById('resultado'),
       modelName: document.getElementById('model-name'),
-      confidenceValue: document.getElementById('confidence-value'),
-      confidenceBar: document.getElementById('confidence-progress'),
       facingMode: document.getElementById('facing-mode'),
       btnDense: document.getElementById('btn-dense'),
       btnCNN: document.getElementById('btn-cnn'),
       btnCNN_AD: document.getElementById('btn-cnn-ad'),
       switchCamera: document.getElementById('switch-camera'),
-      cameraSelect: document.getElementById('camera-select')
+      cameraSelect: document.getElementById('camera-select'),
+      toggleGraphs: document.getElementById('toggle-graphs'),
+      graphsContainer: document.getElementById('graphs-container'),
+      accGraph: document.getElementById('acc-graph'),
+      lossGraph: document.getElementById('loss-graph')
     };
 
     // Initialize
@@ -324,6 +338,30 @@
         state.currentDeviceId = e.target.value;
         await setupCamera();
       });
+      elements.toggleGraphs.addEventListener('click', toggleGraphs);
+    }
+
+    function toggleGraphs() {
+      state.showGraphs = !state.showGraphs;
+      
+      if (state.showGraphs) {
+        // Mostrar gráficas del modelo actual
+        elements.toggleGraphs.textContent = "Ocultar Gráficas";
+        elements.graphsContainer.style.display = 'block';
+        updateGraphs();
+      } else {
+        // Ocultar gráficas
+        elements.toggleGraphs.textContent = "Ver Gráficas";
+        elements.graphsContainer.style.display = 'none';
+      }
+    }
+
+    function updateGraphs() {
+      if (!state.currentModel) return;
+      
+      // Actualizar las imágenes de las gráficas según el modelo seleccionado
+      elements.accGraph.src = `graphs/${state.currentModel}_acc_graph.png`;
+      elements.lossGraph.src = `graphs/${state.currentModel}_loss_graph.png`;
     }
 
     async function switchModel(newModel) {
@@ -347,6 +385,11 @@
           btn.classList.toggle('btn-primary', btn.id === `btn-${newModel}`);
           btn.classList.toggle('btn-outline-primary', btn.id !== `btn-${newModel}`);
         });
+        
+        // Actualizar gráficas si están visibles
+        if (state.showGraphs) {
+          updateGraphs();
+        }
         
       } catch (error) {
         console.error("Error switching model:", error);
