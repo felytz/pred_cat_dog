@@ -55,27 +55,20 @@
           <!-- Camera Feed -->
           <div class="position-relative mb-3">
             <canvas id="canvas" width="400" height="400" class="img-fluid border rounded"></canvas>
-            <!-- Add this near your existing canvas -->
             <canvas id="processing-canvas" width="100" height="100" style="display: none;"></canvas>
             <div class="position-absolute top-0 start-0 m-2">
               <span id="facing-mode" class="badge bg-secondary">Cámara</span>
             </div>
           </div>
           
-          <!-- Camera Selection (for computers) -->
-          <select id="camera-select" class="form-select d-none">
-            <option value="">Seleccionar cámara...</option>
-          </select>
-          
           <!-- Model Selection -->
           <div class="d-flex justify-content-center gap-2 mb-3">
-            <button id="btn-dense" class="btn btn-primary model-btn active">Modelo Dense</button>
-            <button id="btn-cnn" class="btn btn-outline-primary model-btn">Modelo CNN</button>
+            <button id="btn-cnn" class="btn btn-primary model-btn active">Modelo CNN</button>
           </div>
           
           <!-- Prediction Output -->
           <div id="model-info" class="text-start">
-            <div>Modelo cargado: <span id="model-name">Dense</span></div>
+            <div>Modelo cargado: <span id="model-name">CNN</span></div>
             <div>Precisión: <span id="confidence-value">0%</span></div>
             <div id="confidence-bar"><div id="confidence-progress"></div></div>
           </div>
@@ -92,57 +85,13 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.5.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
   
   <script>
-    // Add this right after TensorFlow.js script
-    async function verifyFiles() {
-      const models = ['dense', 'cnn'];
-      for (const model of models) {
-        try {
-          const res = await fetch(`tfjs_${model}_model/model.json`);
-          if (!res.ok) throw new Error();
-          console.log(`Found model.json for ${model}`);
-        } catch {
-          console.error(`MISSING: tfjs_${model}_model/model.json`);
-        }
-      }
-    }
-    window.addEventListener('load', verifyFiles);
-  </script>
-
-  <script>    
-    function checkWebGL() {
-      const gl = document.createElement('canvas').getContext('webgl');
-      if (!gl) {
-        alert('WebGL no está disponible en tu navegador. La aplicación puede no funcionar correctamente.');
-        return false;
-      }
-      return true;
-    }
-
-    function checkTFJS() {
-      if (!tf || !tf.browser || !tf.loadLayersModel) {
-        alert('TensorFlow.js no está cargado correctamente. Recarga la página.');
-        return false;
-      }
-      return true;
-    }
-
-    tf.ready().then(() => {
-      console.log('TensorFlow.js está listo');
-      initApp();
-    }).catch(err => {
-      console.error('Error inicializando TensorFlow.js:', err);
-    });
-
     // App State
     const state = {
-      currentModel: 'dense',
-      models: {
-        dense: null,
-        cnn: null
-      },
+      currentModel: 'cnn',
+      model: null,
       stream: null,
       facingMode: 'environment',
       isModelLoading: false,
@@ -153,92 +102,74 @@
     // DOM Elements
     const elements = {
       canvas: document.getElementById('canvas'),
+      processingCanvas: document.getElementById('processing-canvas'),
       result: document.getElementById('resultado'),
       modelName: document.getElementById('model-name'),
       confidenceValue: document.getElementById('confidence-value'),
       confidenceBar: document.getElementById('confidence-progress'),
       facingMode: document.getElementById('facing-mode'),
-      btnRR: document.getElementById('btn-dense'),
       btnCNN: document.getElementById('btn-cnn'),
-      switchCamera: document.getElementById('switch-camera'),
-      cameraSelect: document.getElementById('camera-select')
+      switchCamera: document.getElementById('switch-camera')
     };
     
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
-      // 1. Check for WebGL and TF.js support
-      if (!checkWebGL() || !checkTFJS()) {
-        elements.result.textContent = "Tu navegador no soporta todas las características requeridas";
-        return;
-      }
-
-      // 2. Show loading state
-      elements.result.textContent = "Inicializando...";
-      
       try {
-        // 3. Wait for TensorFlow.js to be fully ready
-        await tf.ready();
-        console.log('TensorFlow.js está listo');
-        
-        // Verificación explícita
-        if (!state.models.dense || !state.models.dense.inputs[0].shape) {
-          throw new Error("El modelo dense no se inicializó correctamente");
+        // 1. Check for WebGL and TF.js support
+        if (!checkWebGL() || !checkTFJS()) {
+          elements.result.textContent = "Tu navegador no soporta todas las características requeridas";
+          return;
         }
 
-        // 4. Get camera devices list (for desktop)
-        await getCameraDevices();
-        if (state.devices.length > 0) {
-          state.currentDeviceId = state.devices[0].deviceId;
-          populateCameraSelect();
-        }
-
-        // 5. Start with default model (load on demand)
-        await loadModel('dense');
+        // 2. Show loading state
+        elements.result.textContent = "Inicializando...";
         
-        // 6. Setup camera - with fallback handling
+        // 3. Load CNN model
+        await loadModel();
+        
+        // 4. Setup camera
         await setupCamera();
         
-        // 7. Setup event listeners
-        setupEventListeners();
-        
-        // 8. Start prediction loop
+        // 5. Start prediction loop
         predict();
 
       } catch (error) {
         console.error("Initialization error:", error);
         elements.result.textContent = `Error de inicialización: ${error.message}`;
-        
-        // Try to recover with basic functionality
-        try {
-          await setupCamera();
-          if (state.stream) predict();
-        } catch (fallbackError) {
-          elements.result.textContent = "La aplicación no puede iniciar";
-        }
       }
     });
 
-    async function initApp() {
+    function checkWebGL() {
+      const gl = document.createElement('canvas').getContext('webgl');
+      if (!gl) {
+        alert('WebGL no está disponible en tu navegador. La aplicación puede no funcionar correctamente.');
+        return false;
+      }
+      return true;
+    }
+
+    function checkTFJS() {
+      if (!tf || !tf.browser || !tf.loadGraphModel) {
+        alert('TensorFlow.js no está cargado correctamente. Recarga la página.');
+        return false;
+      }
+      return true;
+    }
+
+    async function loadModel() {
       try {
-        await loadModel('dense');
-        await loadModel('cnn').catch(e => console.warn("CNN optional:", e));
+        // Load CNN model from your directory structure
+        state.model = await tf.loadGraphModel('cnn_tfjs_model/model.json');
         
-        if (!state.models.dense) {
-          throw new Error("El modelo dense es requerido");
-        }
+        console.log('✅ Modelo CNN cargado correctamente:', state.model);
+        elements.modelName.textContent = 'CNN';
         
-        await setupCamera();
-        setupEventListeners();
-        predict();
       } catch (error) {
-        console.error("Init error:", error);
-        elements.result.textContent = `Error: ${error.message}`;
-        // Muestra más detalles en la UI para depuración
-        document.body.innerHTML += `<div class="alert alert-danger">${error.stack}</div>`;
+        console.error('❌ Error cargando el modelo:', error);
+        throw new Error(`Error cargando el modelo: ${error.message}`);
       }
     }
-    
-    // Simplified Camera Setup
+
     async function setupCamera() {
       try {
         // Detener stream existente
@@ -260,140 +191,35 @@
       } catch (err) {
         console.error("Camera setup failed:", err);
         elements.result.textContent = "Error al acceder a la cámara";
-        // Intenta con configuración más básica
-        try {
-          const fallbackConstraints = { video: true };
-          state.stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-          startVideoStream();
-        } catch (fallbackError) {
-          console.error("Fallback camera failed:", fallbackError);
-          elements.result.textContent = "No se pudo acceder a ninguna cámara";
-        }
-      }
-    }
-    
-    // Model Loading
-    async function loadModel(modelName) {
-      const modelPath = `tfjs_${modelName}_model/model.json`;
-      
-      try {
-        // 1. First verify the model file exists
-        const response = await fetch(modelPath);
-        if (!response.ok) {
-          throw new Error(`Model JSON not found at ${modelPath}`);
-        }
-
-        // 2. Load the model with explicit error handling
-        const model = await tf.loadLayersModel(modelPath).catch(async (loadError) => {
-          console.error(`Initial load failed: ${loadError.message}`);
-          
-          // Try to force input shape if loading fails
-          const modelConfig = await fetch(modelPath).then(r => r.json());
-          if (!modelConfig.modelTopology.model_config.config.layers[0].config.batch_shape) {
-            console.warn("Manually adding batch_shape to model config");
-            modelConfig.modelTopology.model_config.config.layers[0].config.batch_shape = [null, 100, 100, 1];
-          }
-          
-          // Reload with modified config
-          return await tf.models.loadLayersModel(tf.io.fromMemory(modelConfig));
-        });
-
-        // 3. Ensure input shape exists
-        if (!model.inputs[0].shape) {
-          console.warn("Manually setting input shape");
-          model.inputs[0].shape = [null, 100, 100, 1];
-        }
-
-        // 4. Verify model is functional
-        if (typeof model.predict !== 'function') {
-          throw new Error("Loaded model is invalid - missing predict function");
-        }
-
-        console.log(`✅ Successfully loaded ${modelName} model`, model);
-        return model;
-
-      } catch (error) {
-        console.error(`❌ Failed to load ${modelName} model:`, error);
-        throw new Error(`Model loading failed. Please check:
-    1. All files exist in tfjs_${modelName}_model/
-    2. You're using a local server (not file://)
-    3. No CORS errors in console
-    Original error: ${error.message}`);
       }
     }
 
-    // Detect mobile devices
     function isMobile() {
       return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     }
 
-    // Update switchCamera function
-    async function switchCamera() {
-      if (isMobile()) {
-        state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
-      }
-      await setupCamera();
-    }
-
-    // Get available camera devices
-    async function getCameraDevices() {
-      if (!navigator.mediaDevices.enumerateDevices) {
-        console.log("enumerateDevices not supported");
-        return;
-      }
-
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        state.devices = devices.filter(device => device.kind === 'videoinput');
-      } catch (err) {
-        console.error("Error enumerating devices:", err);
-      }
-    }
-
-    // Populate camera select dropdown
-    function populateCameraSelect() {
-      elements.cameraSelect.innerHTML = '<option value="">Seleccionar cámara...</option>';
-      
-      state.devices.forEach(device => {
-        const option = document.createElement('option');
-        option.value = device.deviceId;
-        option.text = device.label || `Cámara ${elements.cameraSelect.length}`;
-        if (device.deviceId === state.currentDeviceId) {
-          option.selected = true;
-        }
-        elements.cameraSelect.appendChild(option);
-      });
-    }
-
-    // Start video stream
     function startVideoStream() {
       const video = document.createElement('video');
       video.srcObject = state.stream;
       video.autoplay = true;
       
       video.onloadedmetadata = () => {
-        if (video.readyState >= 2) { // 2 = HAVE_ENOUGH_DATA
+        if (video.readyState >= 2) {
           processVideoFeed(video);
-          predict();
         } else {
           video.oncanplay = () => {
             processVideoFeed(video);
-            predict();
           };
         }
       };
     }
 
-    const processingCtx = document.getElementById('processing-canvas').getContext('2d');
-
-    // Video Processing
     function processVideoFeed(video) {
       const ctx = elements.canvas.getContext('2d');
-      const processingCtx = document.getElementById('processing-canvas').getContext('2d');
+      const processingCtx = elements.processingCanvas.getContext('2d');
       
       function draw() {
         if (video.readyState >= 2) {
-          // Solo dibujar si el video tiene datos
           ctx.drawImage(video, 0, 0, elements.canvas.width, elements.canvas.height);
           processingCtx.drawImage(video, 0, 0, 100, 100);
         }
@@ -404,127 +230,58 @@
       draw();
     }
 
-    // Corregir la función prepareImage():
     function prepareImage() {
-        return tf.tidy(() => {
-            const processingCanvas = document.getElementById('processing-canvas');
-            // Todos los modelos deben recibir (1, 100, 100, 1)
-            return tf.browser.fromPixels(processingCanvas, 1)
-                .toFloat()
-                .div(255.0)
-                .reshape([1, 100, 100, 1]);
-        });
+      return tf.tidy(() => {
+        // Convertir a tensor y preprocesar igual que en Python
+        return tf.browser.fromPixels(elements.processingCanvas)
+          .resizeNearestNeighbor([100, 100])
+          .mean(2) // Convertir a escala de grises
+          .expandDims(2) // Añadir dimensión de canal (100, 100, 1)
+          .expandDims() // Añadir dimensión de batch (1, 100, 100, 1)
+          .toFloat()
+          .div(255.0); // Normalizar (0-1)
+      });
     }
 
     function updateUI(confidence) {
-      const isDog = confidence > 50;
+      const isDog = confidence > 0.5;
+      const confidencePercent = (isDog ? confidence : 1 - confidence) * 100;
       
-      // Actualizar el texto del resultado
       elements.result.textContent = isDog ? "🐶 Perro" : "🐱 Gato";
-      
-      // Actualizar el porcentaje de confianza
-      elements.confidenceValue.textContent = `${confidence.toFixed(1)}%`;
-      
-      // Actualizar la barra de progreso
-      elements.confidenceBar.style.width = `${confidence}%`;
-      
-      // Cambiar color según la clase
+      elements.confidenceValue.textContent = `${confidencePercent.toFixed(1)}%`;
+      elements.confidenceBar.style.width = `${confidencePercent}%`;
       elements.confidenceBar.style.background = isDog 
         ? `linear-gradient(90deg, #4ecdc4, #4ecdc4)` 
         : `linear-gradient(90deg, #ff6b6b, #ff6b6b)`;
     }
 
-    // Prediction 
     async function predict() {
-        if (!state.models[state.currentModel]) return;
+      if (!state.model) return;
 
-        try {
-            const inputTensor = prepareImage();
-            const model = state.models[state.currentModel];
-            
-            // Verificación de formas
-            const expectedShape = model.inputs[0].shape.slice(1);
-            const inputShape = inputTensor.shape.slice(1);
-            
-            if (!arraysEqual(inputShape, expectedShape)) {
-                console.error(`Forma del tensor no coincide. Esperado: [${expectedShape}], Recibido: [${inputShape}]`);
-                inputTensor.dispose();
-                setTimeout(predict, 100);
-                return;
-            }
-            
-            const prediction = await model.predict(inputTensor).data();
-            const confidence = prediction[0] * 100; // Convertir a porcentaje
-            updateUI(confidence);
-            inputTensor.dispose();
-            
-        } catch (error) {
-            console.error("Prediction error:", error);
-        } finally {
-            requestAnimationFrame(predict); // Bucle continuo
-        }
-    }
-
-    // Función de ayuda para comparar arrays
-    function arraysEqual(a, b) {
-      return a.length === b.length && a.every((val, i) => val === b[i]);
-    }
-
-    // Event Listeners
-    function setupEventListeners() {
-      // Model switching
-      elements.btnRR.addEventListener('click', () => switchModel('dense'));
-      elements.btnCNN.addEventListener('click', () => switchModel('cnn'));
-      
-      // Camera switching
-      elements.switchCamera.addEventListener('click', switchCamera);
-      
-      // Camera selection (for computers)
-      elements.cameraSelect.addEventListener('change', async (e) => {
-        state.currentDeviceId = e.target.value;
-        await setupCamera();
-      });
-    }
-
-    async function switchModel(newModel) {
-      if (state.currentModel === newModel || state.isModelLoading) return;
-      
-      state.isModelLoading = true;
-      elements.result.textContent = "Cargando modelo...";
-      
       try {
-        await loadModel(newModel);
-        state.currentModel = newModel;
+        const inputTensor = prepareImage();
+        const prediction = await state.model.predict(inputTensor).data();
+        const confidence = prediction[0]; // Valor entre 0 (gato) y 1 (perro)
         
-        // Actualizar UI
-        document.querySelectorAll('.model-btn').forEach(btn => {
-          btn.classList.toggle('active', btn.id === `btn-${newModel}`);
-          btn.classList.toggle('btn-primary', btn.id === `btn-${newModel}`);
-          btn.classList.toggle('btn-outline-primary', btn.id !== `btn-${newModel}`);
-        });
+        updateUI(confidence);
+        inputTensor.dispose();
         
-        elements.modelName.textContent = newModel === 'dense' ? 'Dense' : 'CNN';
-        
-        // Verificación correcta de la forma de entrada
-        console.log("Input shape expected:", state.models[newModel].inputs[0].shape);
       } catch (error) {
-        console.error("Error switching model:", error);
-        elements.result.textContent = "Error al cambiar modelo";
+        console.error("Prediction error:", error);
       } finally {
-        state.isModelLoading = false;
+        requestAnimationFrame(predict);
       }
     }
 
     async function switchCamera() {
       if (isMobile()) {
-        // For mobile devices: toggle between front/back
         state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
-        await setupCamera();
-      } else {
-        // For computers: show the camera selection dropdown
-        elements.cameraSelect.classList.toggle('d-none');
       }
+      await setupCamera();
     }
+
+    // Event Listeners
+    document.getElementById('switch-camera').addEventListener('click', switchCamera);
   </script>
 </body>
 </html>
