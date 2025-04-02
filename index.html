@@ -89,7 +89,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.5.0/dist/tf.min.js"></script>
   
   <script>
-    // App State with prediction history
+    // App State
     const state = {
       currentModel: 'dense',
       models: {
@@ -98,10 +98,7 @@
       },
       stream: null,
       facingMode: 'environment',
-      isModelLoading: false,
-      predictionHistory: [], // Stores {timestamp, value} pairs
-      lastUpdateTime: 0,
-      currentAverage: 0.5 // Initial neutral value
+      isModelLoading: false
     };
 
     // DOM Elements
@@ -207,51 +204,22 @@
       });
     }
 
-      // Prediction with Smoothing
-      async function predict() {
-        if (!state.models[state.currentModel]) {
-          requestAnimationFrame(predict);
-          return;
-        }
+    // Prediction
+    async function predict() {
+      if (!state.models[state.currentModel]) return;
 
-        try {
-          // 1. Get current prediction
-          const inputTensor = prepareImage();
-          const prediction = await state.models[state.currentModel].predict(inputTensor).data();
-          const currentValue = prediction[0];
-          inputTensor.dispose();
-
-          // 2. Store prediction with timestamp
-          const now = Date.now();
-          state.predictionHistory.push({
-            timestamp: now,
-            value: currentValue
-          });
-
-          // 3. Remove predictions older than 2 seconds
-          state.predictionHistory = state.predictionHistory.filter(
-            entry => now - entry.timestamp < 2000
-          );
-
-          // 4. Calculate moving average if we have enough data
-          if (state.predictionHistory.length > 0) {
-            const sum = state.predictionHistory.reduce((acc, entry) => acc + entry.value, 0);
-            state.currentAverage = sum / state.predictionHistory.length;
-          }
-
-          // 5. Only update UI at most 10 times per second (optional)
-          const nowMs = Date.now();
-          if (nowMs - state.lastUpdateTime > 100) {
-            updateUI(state.currentAverage * 100);
-            state.lastUpdateTime = nowMs;
-          }
-
-        } catch (error) {
-          console.error("Prediction error:", error);
-        } finally {
-          requestAnimationFrame(predict);
-        }
+      try {
+        const inputTensor = prepareImage();
+        const prediction = await state.models[state.currentModel].predict(inputTensor).data();
+        const confidence = prediction[0] * 100;
+        updateUI(confidence);
+        inputTensor.dispose();
+      } catch (error) {
+        console.error("Prediction error:", error);
+      } finally {
+        requestAnimationFrame(predict);
       }
+    }
 
     // Update UI
     function updateUI(confidence) {
